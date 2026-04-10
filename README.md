@@ -29,7 +29,7 @@
 | **電源** | USB Type-C 供電，3.3 V / 5 V |
 | **工作溫度** | −20 °C ～ 85 °C |
 
-原理圖：[docs/750NetLiteSch_V1.1.pdf](750NetLiteSch_V1.1.pdf)
+電路圖：[docs/750NetLiteSch_V1.1.pdf](750NetLiteSch_V1.1.pdf)
 
 ---
 
@@ -38,8 +38,8 @@
 ```
 .
 ├── docs/
-│   └── 750NetLiteSch_V1.1.pdf              # 硬體原理圖（賣家提供）
-├── 软件发布/                                # 原廠 Keil 範例（版權歸賣家，詳見授權說明）
+│   └── 750NetLiteSch_V1.1.pdf              # 硬體電路圖（賣家提供）
+├── 软件发布/                                # 賣家 Keil 範例（版權歸賣家，詳見授權說明）
 │   ├── ADC电压采集/
 │   │   ├── ADC—双重ADC-单通道—交替采集/
 │   │   ├── ADC—独立模式-单通道—DMA/
