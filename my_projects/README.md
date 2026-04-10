@@ -1,75 +1,187 @@
-# my_projects
+# STM32H750NetLite — 個人移植專案
 
-這個目錄用來放本倉庫的自行整理與移植專案。
-目前的基礎專案為 `STM32H750NetLite.ioc`，已使用 **STM32CubeMX 6.17.0** 建立，作為後續開發的起點。
+基於 STM32H750VBT6 開發板的個人開發專案，
+以 CubeMX 產生基礎設定，目標工具鏈為 VSCode + GNU Arm GCC + CMake。
 
-## 專案定位
+> **目前狀態：CubeMX 設定階段，尚未產生程式碼。**
 
-`STM32H750NetLite.ioc` 不是針對單一功能範例，而是以這塊開發板的硬體資源為基礎，先把板上可用且已知的主要外設配置完成，方便後續直接延伸成實際應用專案。
+---
 
-開發板硬體背景與模組來源請先閱讀根目錄的 [README.md](../README.md)。
+## 檔案說明
 
-## 目前已完成的基礎設定
+```
+my_projects/
+└── STM32H750NetLite.ioc    # CubeMX 6.17 專案設定檔
+```
 
-這份 `IOC` 目前已先把開發板上主要外設腳位與時鐘基礎配置整理完成，包含：
+---
 
-- `GPIO`
-  - `PC3` 板載 LED 輸出
-  - `PC13` 板載按鍵輸入
-  - `PA0` Wakeup 腳位
-- `ETH`
-  - 使用 `RMII`
-  - 已配置 `LAN8720A` 所需腳位
-  - `PA8` 輸出 `MCO1`，提供 PHY 參考時鐘
-- `FDCAN1`
-  - `PD0` / `PD1`
-- `SPI1`
-  - `PA4` / `PA5` / `PA6` / `PB5`
-- `SDMMC1`
-  - 4-bit bus 模式
-- `USART1`
-  - `PA9` / `PA10`
-- `USB_OTG_FS`
-  - 目前設為 `Device Only`
-- `RTC`
-  - 已啟用 `LSE`
-- `SWD`
-  - 保留除錯下載介面
-- `RCC / Clock Tree`
-  - 已完成 HSE / LSE 與主時鐘基礎配置
-  - `SYSCLK` 設為 `480 MHz`
+## 開發環境
 
-## Middleware 狀態
+| 工具 | 版本 / 說明 |
+|------|-------------|
+| STM32CubeMX | 6.17.0 |
+| STM32CubeH7 Firmware | v1.13.0 |
+| 目標工具鏈 | CMake（CubeMX 已設定） |
+| 編譯器（規劃中） | GNU Arm Embedded Toolchain（`arm-none-eabi-gcc`） |
+| IDE（規劃中） | VSCode + Cortex-Debug |
+| 燒錄（規劃中） | OpenOCD / ST-Link |
 
-目前 **沒有選用任何 Middleware**。
-也就是說，這份基礎專案先只處理：
+---
 
-- MCU 型號與記憶體配置
-- 板上外設腳位分配
-- 基本時鐘樹
-- HAL 初始化框架
+## CubeMX 外設設定
 
-像是下列功能都刻意先不綁定：
+### 時鐘（RCC）
 
-- `LwIP`
-- `USB Class`
-- `FatFs`
-- `FreeRTOS`
-- 其他 CubeMX Middleware
+| 項目 | 數值 |
+|------|------|
+| HSE | 25 MHz（外部晶振，PH0/PH1） |
+| LSE | 外部 32.768 kHz（PC14/PC15，供 RTC） |
+| CPU（SYSCLK） | **480 MHz**（PLL1P） |
+| AXI / AHB | 240 MHz |
+| APB1 / APB2 / APB3 / APB4 | 120 MHz |
+| FDCAN 時脈來源 | PLL2Q → **40 MHz** |
+| SPI1 時脈來源 | CKPER（HSE）→ **25 MHz** |
+| USART1 時脈來源 | PLL3Q → **48 MHz** |
+| USB 時脈來源 | PLL3Q → **48 MHz** |
+| SDMMC1 時脈來源 | PLL2R → **48 MHz** |
+| MCO1 輸出（PA8）| HSE → **25 MHz**（提供 LAN8720A 參考時脈） |
 
-這樣做的目的，是先保留一個乾淨、可維護、方便再生的基礎專案，再依實際需求逐步加入中介層與應用程式碼。
+### 記憶體映射
 
-## 使用方式
+| 區域 | 起始位址 | 大小 | 說明 |
+|------|----------|------|------|
+| FLASH | `0x0800_0000` | 128 KB | 內部 Flash，預設程式碼區 |
+| ITCMRAM | `0x0000_0000` | 64 KB | 指令緊耦合 RAM（Write-through cached） |
+| DTCMRAM | `0x2000_0000` | 128 KB | 資料緊耦合 RAM |
+| RAM（AXI SRAM） | `0x2400_0000` | 512 KB | 主要資料區（預設 heap/stack） |
+| RAM_D2 | `0x3000_0000` | 288 KB | DMA 資料區（ETH、SDMMC 等） |
+| RAM_D3 | `0x3800_0000` | 64 KB | 低功耗域 SRAM |
 
-建議把這份 `IOC` 視為板級初始化模板：
+> Stack: 0x400（1 KB）　Heap: 0x800（2 KB）
 
-1. 先用 CubeMX 開啟 `my_projects/STM32H750NetLite.ioc`
-2. 依實際需求增減外設設定
-3. 需要網路、檔案系統或 RTOS 時，再選擇對應 Middleware
-4. 重新產生專案碼後，在使用者程式區加入應用邏輯
+### 腳位分配
 
-## 補充說明
+**ETH — 乙太網路（LAN8720A，RMII）**
 
-- 目前的設定重點是「先把整塊板子的外設基礎鋪好」，不是直接對應賣家的某一個單獨範例。
-- 如果後續確認某些板上資源接法、腳位用途或時鐘需求需要微調，可以直接回到 `IOC` 修改後再重新產生。
-- 根目錄 `README.md` 主要整理的是開發板硬體資訊與原廠範例背景；這裡則專注在 `my_projects` 內的基礎 CubeMX 專案說明。
+| 腳位 | 信號 |
+|------|------|
+| PA1 | ETH_REF_CLK |
+| PA2 | ETH_MDIO |
+| PA7 | ETH_CRS_DV |
+| PB11 | ETH_TX_EN |
+| PB12 | ETH_TXD0 |
+| PB13 | ETH_TXD1 |
+| PC1 | ETH_MDC |
+| PC4 | ETH_RXD0 |
+| PC5 | ETH_RXD1 |
+| PA8 | MCO1 → LAN8720A REF_CLK（25 MHz） |
+
+**FDCAN1（NXP TJA1042）**
+
+| 腳位 | 信號 |
+|------|------|
+| PD0 | FDCAN1_RX |
+| PD1 | FDCAN1_TX |
+
+> 額定波特率：833.333 kbps（CubeMX 計算值）
+
+**SPI1 — NOR Flash（Boya Micro BY25Q32ES）**
+
+| 腳位 | 信號 |
+|------|------|
+| PA4 | SPI1_NSS（Software） |
+| PA5 | SPI1_SCK |
+| PA6 | SPI1_MISO |
+| PB5 | SPI1_MOSI |
+
+> Full-Duplex Master，12.5 Mbps
+
+**USART1 — 除錯串口**
+
+| 腳位 | 信號 |
+|------|------|
+| PA9 | USART1_TX |
+| PA10 | USART1_RX |
+
+> Asynchronous 模式，時脈 48 MHz（PLL3Q）
+
+**USB_OTG_FS**
+
+| 腳位 | 信號 |
+|------|------|
+| PA11 | USB_OTG_FS_DM |
+| PA12 | USB_OTG_FS_DP |
+
+> Device Only 模式
+
+**SDMMC1 — SD 卡（4-bit）**
+
+| 腳位 | 信號 |
+|------|------|
+| PC8 | SDMMC1_D0 |
+| PC9 | SDMMC1_D1 |
+| PC10 | SDMMC1_D2 |
+| PC11 | SDMMC1_D3 |
+| PC12 | SDMMC1_CK |
+| PD2 | SDMMC1_CMD |
+
+**GPIO**
+
+| 腳位 | 標籤 | 方向 | 說明 |
+|------|------|------|------|
+| PC3 | LED | Output | 板載 LED |
+| PC13 | PC13_KEY2 | Input | 按鍵 2 |
+| PA0 | PA0_WKUP | PWR_WKUP1 | 喚醒按鍵 |
+| PA4 | FLASH_CS | Output | Flash Chip Select |
+
+**RTC**
+
+| 腳位 | 信號 | 說明 |
+|------|------|------|
+| PB2 | RTC_OUT_CALIB | 512 Hz 校正輸出 |
+| PB15 | RTC_REFIN | 外部參考時脈偵測 |
+
+**SWD 除錯**
+
+| 腳位 | 信號 |
+|------|------|
+| PA13 | SWDIO |
+| PA14 | SWCLK |
+
+---
+
+## Middleware 計畫
+
+目前 CubeMX 未啟用任何 Middleware，待程式碼移植階段依需求加入：
+
+| Middleware | 用途 | 狀態 |
+|------------|------|------|
+| LwIP | TCP/IP 協議棧（搭配 ETH） | 規劃中 |
+| FreeRTOS | 即時作業系統 | 規劃中 |
+| FatFS | SD 卡檔案系統（搭配 SDMMC1） | 規劃中 |
+| USB Device CDC | 虛擬串口 | 規劃中 |
+
+---
+
+## 開發進度
+
+- [x] 確認板載硬體規格（Flash、PHY、CAN 收發器）
+- [x] CubeMX 6.17 + CubeH7 v1.13.0 建立專案
+- [x] 設定所有板載外設腳位與時鐘
+- [x] 目標工具鏈設為 CMake
+- [ ] CubeMX 產生初始程式碼框架
+- [ ] 建立 VSCode + Cortex-Debug 除錯設定（`.vscode/`）
+- [ ] 驗證 LED / USART1 基本輸出
+- [ ] 驗證 ETH + LAN8720A Link
+- [ ] 驗證 FDCAN1 Loopback
+- [ ] 驗證 SPI1 Flash（BY25Q32ES）讀寫
+- [ ] 驗證 SDMMC1 SD 卡
+- [ ] 驗證 USB CDC
+
+---
+
+## 授權
+
+本目錄內容由本人自行建立，以 **MIT License** 釋出。
+詳見上層目錄 [LICENSE-MIT](../LICENSE-MIT)。
