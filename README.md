@@ -10,6 +10,8 @@
 
 購買連結：[淘寶商品頁面](https://item.taobao.com/item.htm?id=763078439777)
 
+![Board](docs/pics/board.webp)
+
 ---
 
 ## 硬體規格
@@ -19,7 +21,7 @@
 | **主控晶片** | STM32H750VBT6（Arm Cortex-M7，480 MHz） |
 | **內建 Flash** | 128 KB（零等待） |
 | **SRAM** | 1 MB（含 TCM / AXI / SRAM1~3） |
-| **外擴 NOR Flash** | Boya Micro BY25Q32（QSPI，32 Mbit，支援 XIP） |
+| **外擴 NOR Flash** | Boya Micro BY25Q32ESTI（QSPI，32 Mbit，支援 XIP） |
 | **乙太網路 PHY** | Microchip LAN8720A，RMII 介面，10/100 Mbps |
 | **CAN** | FDCAN1 × 1（支援 Classic CAN / CAN FD），收發器 NXP TJA1042 |
 | **USB** | USB FS（Device / Host / OTG） |
@@ -196,7 +198,9 @@ A：確認使用 QSPI Flash 下載演算法，並確認 Boot 設定與 XIP 位�
 
 - [STM32H750 Datasheet](https://www.st.com/resource/en/datasheet/stm32h750vb.pdf)
 - [STM32H7 Reference Manual (RM0433)](https://www.st.com/resource/en/reference_manual/rm0433-stm32h742-stm32h743753-and-stm32h750-value-line-advanced-armbased-32bit-mcus-stmicroelectronics.pdf)
-- [LAN8720A Datasheet](https://ww1.microchip.com/downloads/en/DeviceDoc/8720a.pdf)
+- [LAN8720A Datasheet](docs/Datasheets/LAN8720a.pdf)
+- [BY25Q32ES Datasheet](docs/Datasheets/BY25Q32ES.pdf)
+- [TJA1042 Datasheet](docs/Datasheets/TJA1042.pdf)
 - [LwIP 官方文件](https://www.nongnu.org/lwip/2_1_x/index.html)
 - [STM32CubeH7 韌體套件](https://github.com/STMicroelectronics/STM32CubeH7)
 
