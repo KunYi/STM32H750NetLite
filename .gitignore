@@ -1,0 +1,12 @@
+# 編譯產出
+*/Output/*
+
+# 系統 / 編輯器
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Log / 暫存
+*.log
+*.tmp
+*.bak
