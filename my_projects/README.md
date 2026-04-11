@@ -31,6 +31,18 @@ my_projects/
 
 ## CubeMX 外設設定
 
+### 電源（PWR）
+
+此 STM32H750NetLite 板子的 Vcore power supply 依賣家範例設定為 **LDO supply**。在 CubeMX 設定或重新產生 `.ioc` 時，PWR supply source 請使用：
+
+| 項目 | 設定 |
+|------|------|
+| Power Supply | `PWR_LDO_SUPPLY` |
+| 產生碼 | `HAL_PWREx_ConfigSupply(PWR_LDO_SUPPLY);` |
+| CMake define | `USE_PWR_LDO_SUPPLY` |
+
+不要選 SMPS 相關 supply source，除非確認硬體版本已接好 SMPS 所需電路。
+
 ### 時鐘（RCC）
 
 | 項目 | 數值 |

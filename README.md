@@ -185,6 +185,23 @@
 
 ---
 
+## CubeMX 板級設定注意
+
+這塊 STM32H750NetLite 板子的 Vcore power supply 依賣家範例應設定為
+**LDO supply**。
+
+在 STM32CubeMX 建立或重新產生 `.ioc` 時，請確認：
+
+| 項目 | 設定 |
+|------|------|
+| PWR / Power Supply | `PWR_LDO_SUPPLY` |
+| 產生碼檢查 | `HAL_PWREx_ConfigSupply(PWR_LDO_SUPPLY);` |
+| CMake symbol | `USE_PWR_LDO_SUPPLY` |
+
+不要改成 SMPS 相關設定，除非硬體版本已確認有對應的 SMPS 供電設計；否則可能造成上電或時脈初始化不穩定。
+
+---
+
 ## 燒錄注意事項
 
 原廠範例的燒錄方式大致可分為兩類：
