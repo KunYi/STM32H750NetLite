@@ -183,6 +183,26 @@
 | CMake + Ninja | 建構系統 |
 | OpenOCD | 開源燒錄與 GDB Server |
 
+#### 使用 OpenOCD v0.12 with RP2040 Zero debugging
+
+基本上基於 Raspberry DebugProbe 適配到 Waveshare RP2040 Zero 上面
+
+![DebugProbe](docs/pics/debugprobe.webp)
+
+**需要連接下面接腳**
+
+|  Zero |   說明   | H750NetLite |
+|-------|---------|-------------|
+|  GP1  | nReset  |    Reset    |
+|  GP2  | SWD_CLK |    CLK      |
+|  GP3  | SWD_DIO |    DIO      |
+|  GP4  | UART TX |    RX       |
+|  GP5  | UART RX |    TX       |
+|  GND  |   GND   |    GND      |
+|  3V3  |  3.3V   |    3V3      |
+
+![PinOut Defined](docs/pics/RP2040-Zero-pinout.jpg)
+
 ---
 
 ## CubeMX 板級設定注意
