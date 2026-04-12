@@ -1,0 +1,30 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug: STM32H750NetLiteBoot",
+            "type": "cortex-debug",
+            "request": "launch",
+            "servertype": "openocd",
+            "serverpath": "openocd",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}/build/Debug/STM32H750NetLiteBoot.elf",
+            "device": "STM32H750xx",
+            "svdFile": "${workspaceFolder}/.vscode/STM32H750x.svd"
+            "configFiles": [
+                "${workspaceFolder}/openocd_scripts/h750netlite.cfg"
+            ],
+            "searchDir": [
+                "${workspaceFolder}/openocd_scripts"
+            ],
+            "gdbPath": "gdb-multiarch",
+            "preLaunchCommands": [
+                "set architecture armv7e-m",
+                "set endian little"
+            ],
+            "runToEntryPoint": "main",
+            "preLaunchTask": "CMake: Build Debug",
+            "showDevDebugOutput": "none"
+        }
+    ]
+}

@@ -1,0 +1,91 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "CMake: Configure Debug",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--preset",
+                "Debug"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "CMake: Build Debug",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "--preset",
+                "Debug"
+            ],
+            "dependsOn": [
+                "CMake: Configure Debug"
+            ],
+            "dependsOrder": "sequence",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": "$gcc"
+        },
+        {
+            "label": "CMake: Configure Release",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--preset",
+                "Release"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "CMake: Build Release",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "--preset",
+                "Release"
+            ],
+            "dependsOn": [
+                "CMake: Configure Release"
+            ],
+            "dependsOrder": "sequence",
+            "problemMatcher": "$gcc"
+        },
+        {
+            "label": "Flash: Debug",
+            "type": "shell",
+            "command": "openocd",
+            "args": [
+                "-f",
+                "${workspaceFolder}/openocd_scripts/h750netlite.cfg",
+                "-c",
+                "program \"${workspaceFolder}/build/Debug/STM32H750NetLiteBoot.elf\" verify reset exit"
+            ],
+            "dependsOn": [
+                "CMake: Build Debug"
+            ],
+            "dependsOrder": "sequence",
+            "problemMatcher": []
+        },
+        {
+            "label": "Flash: Release",
+            "type": "shell",
+            "command": "openocd",
+            "args": [
+                "-f",
+                "${workspaceFolder}/openocd_scripts/h750netlite.cfg",
+                "-c",
+                "program \"${workspaceFolder}/build/Release/STM32H750NetLiteBoot.elf\" verify reset exit"
+            ],
+            "dependsOn": [
+                "CMake: Build Release"
+            ],
+            "dependsOrder": "sequence",
+            "problemMatcher": []
+        }
+    ]
+}
