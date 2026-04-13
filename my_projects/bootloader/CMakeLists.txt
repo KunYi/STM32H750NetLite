@@ -53,6 +53,13 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/source/startup_stm32h750xx.s
 )
 
+if(BOOT_FLASH_SELF_TEST)
+    target_sources(${CMAKE_PROJECT_NAME} PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/source/verify/boot_verify.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/source/verify/by25q32es_verify.c
+    )
+endif()
+
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined include paths
