@@ -19,7 +19,7 @@
 | 項目 | 說明 |
 |------|------|
 | **主控晶片** | STM32H750VBT6（Arm Cortex-M7，480 MHz） |
-| **內建 Flash** | 128 KB（零等待） |
+| **內建 Flash** | 128 KB |
 | **SRAM** | 1 MB（含 TCM / AXI / SRAM1~3） |
 | **外接 NOR Flash** | Boya Micro BY25Q32ESTI（32 Mbit） |
 | **乙太網路 PHY** | Microchip LAN8720A，RMII 介面，10/100 Mbps |
