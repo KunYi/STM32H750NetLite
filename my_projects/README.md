@@ -23,9 +23,12 @@ my_projects/
 | STM32CubeMX | 6.17.0 |
 | STM32CubeH7 Firmware | v1.13.0 |
 | 目標工具鏈 | CMake（CubeMX 已設定） |
-| 編譯器（規劃中） | GNU Arm Embedded Toolchain（`arm-none-eabi-gcc`） |
-| IDE（規劃中） | VSCode + Cortex-Debug |
-| 燒錄（規劃中） | OpenOCD / ST-Link |
+| 編譯器 | GNU Arm Embedded Toolchain（`arm-none-eabi-gcc`） |
+| IDE　　| VSCode + Cortex-Debug |
+| 燒錄　 | OpenOCD / ST-Link |
+
+PS: 目前使用PR2040 Zero 燒錄 Raspberry 的 DebugProbe 韌體，支持 DAP-Link V2, USB CDC, nReset 信號，使用 OpenOCD 燒錄
+
 
 ---
 
@@ -34,6 +37,8 @@ my_projects/
 ### 電源（PWR）
 
 此 STM32H750NetLite 板子的 Vcore power supply 依賣家範例設定為 **LDO supply**。在 CubeMX 設定或重新產生 `.ioc` 時，PWR supply source 請使用：
+
+**STM32H750x** 只支持 LDO supply 所以CubeMX 應該是不能選，所以可以忽略這個警告。
 
 | 項目 | 設定 |
 |------|------|
@@ -144,7 +149,7 @@ my_projects/
 |------|------|------|------|
 | PC3 | LED | Output | 板載 LED |
 | PC13 | PC13_KEY2 | Input | 按鍵 2 |
-| PA0 | PA0_WKUP | PWR_WKUP1 | 喚醒按鍵 |
+| PA0 | PA0_WKUP | Input | 喚醒按鍵 (測試Standby Mode 才會實做，目前為一般GPIO Input)|
 | PA4 | FLASH_CS | Output | Flash Chip Select |
 
 **RTC**
@@ -182,12 +187,12 @@ my_projects/
 - [x] CubeMX 6.17 + CubeH7 v1.13.0 建立專案
 - [x] 設定所有板載外設腳位與時鐘
 - [x] 目標工具鏈設為 CMake
-- [ ] CubeMX 產生初始程式碼框架
-- [ ] 建立 VSCode + Cortex-Debug 除錯設定（`.vscode/`）
+- [x] CubeMX 產生初始程式碼框架
+- [x] 建立 VSCode + Cortex-Debug 除錯設定（`.vscode/`）
 - [ ] 驗證 LED / USART1 基本輸出
 - [ ] 驗證 ETH + LAN8720A Link
 - [ ] 驗證 FDCAN1 Loopback
-- [ ] 驗證 SPI1 Flash（BY25Q32ES）讀寫
+- [x] 驗證 SPI1 Flash（BY25Q32ES）讀寫
 - [ ] 驗證 SDMMC1 SD 卡
 - [ ] 驗證 USB CDC
 
