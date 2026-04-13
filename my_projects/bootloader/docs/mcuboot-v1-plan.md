@@ -203,7 +203,11 @@ Bring in:
 - public key source.
 - Ed25519 signature verification.
 - TinyCrypt backend with the bundled tinycrypt-based SHA-512 path for Ed25519,
-  avoiding Mbed TLS in the first port.
+  avoiding Mbed TLS crypto in the first port.
+- Keep the minimal `mbedtls-asn1` parser path for Ed25519 public key DER
+  `SubjectPublicKeyInfo` validation during bring-up. If flash space becomes
+  tight, consider switching to MCUboot's ASN.1 bypass path and directly using
+  the raw 32-byte Ed25519 public key from a controlled key-generation flow.
 - logging/assert/platform glue.
 
 First validation goal:
@@ -219,6 +223,9 @@ Crypto notes:
   selected commit contains the Ed25519 + tinycrypt SHA-512 verification path.
 - Keep RSA and ECDSA disabled unless Ed25519 code size or porting issues force
   a fallback.
+- ASN.1 is not part of Ed25519 signature verification itself; it is only used
+  to parse and validate the public key container format before extracting the
+  raw Ed25519 key.
 
 ### Phase 4: Signed RAM-load Application
 
@@ -339,6 +346,9 @@ If V2 becomes necessary:
 - Exact MCUboot commit/version.
 - Crypto backend: Ed25519 with TinyCrypt and bundled tinycrypt-based SHA-512
   first, unless the pinned MCUboot commit or code size forces another choice.
+- Public key import mode: keep ASN.1 validation for now; allow
+  `MCUBOOT_KEY_IMPORT_BYPASS_ASN` later if measured flash usage requires
+  removing the parser.
 - Whether normal boot should use HSI SPI only or add optional PLL2P 60 MHz SPI.
 - Whether T-Flash/FATFS is mandatory in the first recovery milestone or build
   option only.
