@@ -41,6 +41,12 @@ add_executable(${CMAKE_PROJECT_NAME})
 add_subdirectory(cmake/stm32cubemx)
 # Add TinyCrypt library
 add_subdirectory(cmake/tinycrypt)
+# Add MCUboot library
+add_subdirectory(cmake/mcuboot)
+# Add mbedtls-asn1 library
+add_subdirectory(cmake/mbedtls-asn1)
+# Add Fiat library
+add_subdirectory(cmake/fiat)
 
 # Link directories setup
 target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
@@ -51,6 +57,8 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
     ${CMAKE_CURRENT_SOURCE_DIR}/source/by25q32es.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/mcuboot_flash_map.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/no_heap.c
     ${CMAKE_CURRENT_SOURCE_DIR}/source/uart_stdio_async.c
     ${CMAKE_CURRENT_SOURCE_DIR}/source/startup_stm32h750xx.s
 )
@@ -84,4 +92,14 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
 
     # Add user defined libraries
     tinycrypt
+    mcuboot
+    mbedtls-asn1
+    fiat
+)
+
+target_link_options(${CMAKE_PROJECT_NAME} PRIVATE
+    -Wl,--wrap=malloc
+    -Wl,--wrap=calloc
+    -Wl,--wrap=realloc
+    -Wl,--wrap=free
 )
