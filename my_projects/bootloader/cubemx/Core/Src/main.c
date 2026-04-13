@@ -136,6 +136,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    uart_stdio_async_poll();
   }
   /* USER CODE END 3 */
 }

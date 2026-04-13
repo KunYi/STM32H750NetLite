@@ -10,3 +10,5 @@ Thumbs.db
 *.log
 *.tmp
 *.bak
+
+docs/*.pdf

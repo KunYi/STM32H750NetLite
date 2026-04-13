@@ -32,7 +32,7 @@ static uint8_t rx_dma_buffer[UART_STDIO_RX_DMA_BUFFER_SIZE];
 __attribute__((section(".dma_buffer"), aligned(32)))
 static uint8_t tx_ring_buffer[UART_STDIO_TX_RING_BUFFER_SIZE];
 
-static UART_HandleTypeDef *stdio_uart;
+static UART_HandleTypeDef * volatile stdio_uart;
 static volatile size_t rx_read_index;
 static volatile size_t tx_head_index;
 static volatile size_t tx_tail_index;
@@ -131,6 +131,23 @@ static int tx_enqueue_all(const uint8_t *data, size_t len)
     return queued;
 }
 
+static void tx_recover_error_locked(void)
+{
+    size_t completed = 0U;
+
+    if ((stdio_uart != NULL) && (stdio_uart->hdmatx != NULL) && (tx_dma_len > 0U)) {
+        size_t remaining = (size_t)__HAL_DMA_GET_COUNTER(stdio_uart->hdmatx);
+
+        if (remaining <= tx_dma_len) {
+            completed = tx_dma_len - remaining;
+        }
+    }
+
+    tx_tail_index = (tx_tail_index + completed) % UART_STDIO_TX_RING_BUFFER_SIZE;
+    tx_dma_len    = 0U;
+    tx_dma_active = 0;
+}
+
 static void tx_start_next(void)
 {
     uint8_t *tx_ptr;
@@ -207,6 +224,36 @@ static size_t rx_write_index_get(void)
     }
 
     return (UART_STDIO_RX_DMA_BUFFER_SIZE - remaining) % UART_STDIO_RX_DMA_BUFFER_SIZE;
+}
+
+static void rx_restart_if_pending(void)
+{
+    HAL_StatusTypeDef abort_status;
+    HAL_StatusTypeDef receive_status;
+    uint32_t primask;
+
+    if ((stdio_uart == NULL) || (rx_reset_pending == 0)) {
+        return;
+    }
+
+    primask = irq_save();
+    if (rx_reset_pending == 0) {
+        irq_restore(primask);
+        return;
+    }
+    rx_reset_pending = 0;
+    rx_read_index    = 0U;
+    irq_restore(primask);
+
+    abort_status = HAL_UART_AbortReceive(stdio_uart);
+    receive_status = HAL_UART_Receive_DMA(stdio_uart, rx_dma_buffer,
+                                          (uint16_t)UART_STDIO_RX_DMA_BUFFER_SIZE);
+
+    if ((abort_status != HAL_OK) || (receive_status != HAL_OK)) {
+        primask = irq_save();
+        rx_reset_pending = 1;
+        irq_restore(primask);
+    }
 }
 
 int uart_stdio_async_init(UART_HandleTypeDef *huart)
@@ -291,18 +338,9 @@ size_t uart_stdio_async_read(uint8_t *data, size_t len)
         return 0U;
     }
 
-    /* Consume pending RX reset that was requested by HAL_UART_ErrorCallback.
-     * Handled here (main context) to avoid a race between the ISR zeroing
-     * rx_read_index while the main loop is mid-read. */
+    /* Consume pending RX reset that was requested by HAL_UART_ErrorCallback. */
     if (rx_reset_pending != 0) {
-        uint32_t primask = irq_save();
-        rx_reset_pending = 0;
-        rx_read_index    = 0U;
-        irq_restore(primask);
-
-        (void)HAL_UART_AbortReceive(stdio_uart);
-        (void)HAL_UART_Receive_DMA(stdio_uart, rx_dma_buffer,
-                                   (uint16_t)UART_STDIO_RX_DMA_BUFFER_SIZE);
+        rx_restart_if_pending();
         return 0U;
     }
 
@@ -344,15 +382,17 @@ size_t uart_stdio_async_tx_free(void)
     return free_len;
 }
 
-/* Poll function: recovers from a TX DMA launch failure.
+/* Poll function: recovers deferred UART/DMA error handling.
  * Call periodically from the main loop when using uart_stdio_async_write()
- * in a non-blocking manner, to ensure data is not permanently stuck in the
- * ring buffer after a transient HAL_UART_Transmit_DMA() error. */
+ * in a non-blocking manner, to ensure TX data is not permanently stuck and
+ * RX DMA restarts even when the caller polls rx_available() before read(). */
 void uart_stdio_async_poll(void)
 {
     uint32_t primask = irq_save();
     int need_start = ((tx_dma_active == 0) && (tx_head_index != tx_tail_index));
     irq_restore(primask);
+
+    rx_restart_if_pending();
 
     if (need_start != 0) {
         tx_start_next();
@@ -512,9 +552,19 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
+    uint32_t primask;
+
     if (huart != stdio_uart) {
         return;
     }
+
+    primask = irq_save();
+    if ((tx_dma_active != 0) &&
+        ((huart->gState != HAL_UART_STATE_BUSY_TX) ||
+         (HAL_IS_BIT_CLR(huart->Instance->CR3, USART_CR3_DMAT)))) {
+        tx_recover_error_locked();
+    }
+    irq_restore(primask);
 
     /* Signal main context to perform a safe RX reset.
      * Directly mutating rx_read_index here races with uart_stdio_async_read();
