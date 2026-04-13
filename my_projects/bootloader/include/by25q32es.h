@@ -1,3 +1,4 @@
+#pragma once
 #ifndef BY25Q32ES_H
 #define BY25Q32ES_H
 

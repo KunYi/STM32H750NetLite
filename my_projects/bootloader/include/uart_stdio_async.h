@@ -1,3 +1,4 @@
+#pragma once
 #ifndef UART_STDIO_ASYNC_H
 #define UART_STDIO_ASYNC_H
 

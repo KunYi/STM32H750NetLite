@@ -1,3 +1,4 @@
+#pragma once
 #ifndef BOOT_FLASH_LAYOUT_H
 #define BOOT_FLASH_LAYOUT_H
 
