@@ -23,6 +23,7 @@ set(CMAKE_PROJECT_NAME STM32H750NetLiteBoot)
 
 option(BOOT_FLASH_SELF_TEST "Run BY25Q32ES self-test at startup" ON)
 option(BOOT_FLASH_DESTRUCTIVE_TEST "Erase/program the BY25Q32ES reserved test sector at startup" ON)
+option(BOOT_MCUBOOT_BRINGUP "Run MCUboot boot_go validation-only bring-up at startup" ON)
 
 # Enable compile command to ease indexing with e.g. clangd
 set(CMAKE_EXPORT_COMPILE_COMMANDS TRUE)
@@ -56,6 +57,7 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/boot_keys.c
     ${CMAKE_CURRENT_SOURCE_DIR}/source/by25q32es.c
     ${CMAKE_CURRENT_SOURCE_DIR}/source/mcuboot_flash_map.c
     ${CMAKE_CURRENT_SOURCE_DIR}/source/no_heap.c
@@ -70,6 +72,12 @@ if(BOOT_FLASH_SELF_TEST)
     )
 endif()
 
+if(BOOT_MCUBOOT_BRINGUP)
+    target_sources(${CMAKE_PROJECT_NAME} PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/source/boot_mcuboot.c
+    )
+endif()
+
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined include paths
@@ -81,6 +89,12 @@ target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined symbols
     BOOT_FLASH_SELF_TEST=$<BOOL:${BOOT_FLASH_SELF_TEST}>
     BOOT_FLASH_DESTRUCTIVE_TEST=$<BOOL:${BOOT_FLASH_DESTRUCTIVE_TEST}>
+    BOOT_MCUBOOT_BRINGUP=$<BOOL:${BOOT_MCUBOOT_BRINGUP}>
+)
+
+target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE
+    # MCUboot/Ed25519 bring-up does not fit in the 128 KB bootloader flash at -O0.
+    $<$<AND:$<CONFIG:Debug>,$<BOOL:${BOOT_MCUBOOT_BRINGUP}>>:-Os>
 )
 
 # Remove wrong libob.a library dependency when using cpp files

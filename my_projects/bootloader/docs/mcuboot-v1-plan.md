@@ -11,6 +11,8 @@ Initial scope:
 - MCUboot chooses the image, copies it to AXI SRAM at `0x24000000`, verifies it,
   then the bootloader jumps to the RAM image.
 - OTA and recovery paths write MCUboot signed images only.
+- Signature policy is EC256/P-256 ECDSA with SHA-256. Ed25519 is deferred
+  because it did not fit the current bootloader flash budget.
 - Use MCUboot trailer state for pending, confirm, and revert.
 - Do not implement the V2 segmented loader until the application load image gets
   close to the AXI SRAM 512 KB limit.
@@ -201,13 +203,13 @@ Bring in:
 - `boot/bootutil` sources.
 - `mcuboot_config.h`.
 - public key source.
-- Ed25519 signature verification.
-- TinyCrypt backend with the bundled tinycrypt-based SHA-512 path for Ed25519,
-  avoiding Mbed TLS crypto in the first port.
-- Keep the minimal `mbedtls-asn1` parser path for Ed25519 public key DER
+- EC256 signature verification, meaning ECDSA P-256 with SHA-256.
+- TinyCrypt backend for the EC256 path, avoiding Mbed TLS crypto in the first
+  port.
+- Keep the minimal `mbedtls-asn1` parser path for ECDSA P-256 public key DER
   `SubjectPublicKeyInfo` validation during bring-up. If flash space becomes
   tight, consider switching to MCUboot's ASN.1 bypass path and directly using
-  the raw 32-byte Ed25519 public key from a controlled key-generation flow.
+  the raw P-256 public key from a controlled key-generation flow.
 - logging/assert/platform glue.
 
 First validation goal:
@@ -218,14 +220,13 @@ First validation goal:
 
 Crypto notes:
 
-- Use `imgtool` Ed25519 keys and signed images for the Phase 3 port.
+- Use `imgtool` EC256/P-256 keys and signed images for the Phase 3 port.
 - Pin the MCUboot commit before wiring the crypto files, then verify that the
-  selected commit contains the Ed25519 + tinycrypt SHA-512 verification path.
-- Keep RSA and ECDSA disabled unless Ed25519 code size or porting issues force
-  a fallback.
-- ASN.1 is not part of Ed25519 signature verification itself; it is only used
-  to parse and validate the public key container format before extracting the
-  raw Ed25519 key.
+  selected commit contains the TinyCrypt ECDSA P-256 verification path.
+- Keep RSA disabled. Ed25519 is deferred because the code size did not fit the
+  current bootloader flash budget.
+- ASN.1 is only used to parse and validate the public key container format
+  before extracting the P-256 public key.
 
 ### Phase 4: Signed RAM-load Application
 
@@ -242,7 +243,7 @@ Signing command shape:
 
 ```sh
 python3 external/mcuboot/scripts/imgtool.py sign \
-  --key keys/dev_ed25519.pem \
+  --key keys/dev_ec256.pem \
   --version 1.0.0+0 \
   --header-size 0x200 \
   --slot-size 0x100000 \
@@ -344,8 +345,9 @@ If V2 becomes necessary:
 ## Open Decisions
 
 - Exact MCUboot commit/version.
-- Crypto backend: Ed25519 with TinyCrypt and bundled tinycrypt-based SHA-512
-  first, unless the pinned MCUboot commit or code size forces another choice.
+- Crypto backend: EC256/P-256 ECDSA with SHA-256 and TinyCrypt first. Ed25519
+  is deferred because measured code size was too large for the current
+  bootloader flash budget.
 - Public key import mode: keep ASN.1 validation for now; allow
   `MCUBOOT_KEY_IMPORT_BYPASS_ASN` later if measured flash usage requires
   removing the parser.

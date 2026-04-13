@@ -11,6 +11,7 @@ set(TinyCrypt_Src
     ${TINYCRYPT_DIR}/lib/source/ecc_dh.c
     ${TINYCRYPT_DIR}/lib/source/hmac.c
     ${TINYCRYPT_DIR}/lib/source/sha256.c
+    ${TINYCRYPT_DIR}/lib/source/utils.c
     ${TINYCRYPT_SHA512_DIR}/lib/source/sha512.c
 )
 

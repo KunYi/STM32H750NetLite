@@ -21,6 +21,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "boot_mcuboot.h"
 #include "boot_verify.h"
 #include "uart_stdio_async.h"
 
@@ -114,6 +115,9 @@ int main(void)
   };
   BootVerify_RunAll(&verify_context);
 #endif /* BOOT_FLASH_SELF_TEST */
+#if BOOT_MCUBOOT_BRINGUP
+  BootMcuboot_RunValidationOnly();
+#endif /* BOOT_MCUBOOT_BRINGUP */
   /* USER CODE END 2 */
 
   /* Infinite loop */

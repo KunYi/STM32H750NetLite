@@ -1,2 +1,5 @@
 # Ignore build artifacts
 [Bb]uild/*
+
+# Local signing keys; generated public key material belongs in source.
+keys/*.pem

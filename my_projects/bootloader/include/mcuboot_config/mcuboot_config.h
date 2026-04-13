@@ -4,21 +4,23 @@
 
 /*
  * Phase 3 bring-up configuration:
- * - Verify MCUboot images with Ed25519.
- * - Use TinyCrypt plus the local tinycrypt-sha512 extension.
+ * - Verify MCUboot images with EC256.
+ * - Use TinyCrypt
  * - Keep the first boot path small: no stock RAM_LOAD, Direct-XIP, encryption,
- *   serial recovery, decompression, RSA, or ECDSA.
+ *   serial recovery, decompression, or non-EC256 signature schemes.
  */
 
 /* Signature and hash policy. */
+#if 0
 #define MCUBOOT_SIGN_ED25519
 #define MCUBOOT_SHA512
-
-/* Avoid pulling Mbed TLS ASN.1 into the first port.  imgtool stores Ed25519
- * public keys as DER SubjectPublicKeyInfo; the raw public key is the last
- * 32 bytes and is used directly by image_ed25519.c with this option.
+#else
+#define MCUBOOT_SIGN_EC256
+#define MCUBOOT_SHA256
+#endif
+/* Keep ASN.1 public-key container validation for bring-up.  This uses only
+ * the minimal mbedtls-asn1 parser path, not Mbed TLS crypto.
  */
-#define MCUBOOT_KEY_IMPORT_BYPASS_ASN
 
 /* Crypto backend. */
 #define MCUBOOT_USE_TINYCRYPT

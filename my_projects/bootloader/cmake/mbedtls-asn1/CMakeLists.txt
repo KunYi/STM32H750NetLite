@@ -6,6 +6,7 @@ set(MBEDTLS_ASN1_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../mcuboot/ext/mbedtls-asn1)
 
 set(MBEDTLS_ASN1_Src
     ${MBEDTLS_ASN1_DIR}/src/asn1parse.c
+    ${MBEDTLS_ASN1_DIR}/src/platform_util.c
 )
 
 set(MBEDTLS_ASN1_Include_Dirs
