@@ -1,0 +1,326 @@
+# MCUboot V1 Bootloader Plan
+
+## Current Decision
+
+Use MCUboot bootutil with RAM-load mode and external SPI NOR A/B slots.
+
+Initial scope:
+
+- Bootloader stays in internal flash at `0x08000000`.
+- Application images live in BY25Q32 SPI NOR slots.
+- MCUboot chooses the image, copies it to AXI SRAM at `0x24000000`, verifies it,
+  then the bootloader jumps to the RAM image.
+- OTA and recovery paths write MCUboot signed images only.
+- Use MCUboot trailer state for pending, confirm, and revert.
+- Do not implement the V2 segmented loader until the application load image gets
+  close to the AXI SRAM 512 KB limit.
+
+## Size Baseline
+
+Current picolibc toolchain result, Release:
+
+```text
+text    data     bss     dec
+25628     36   10808   36472
+```
+
+Comparable newlib-nano baseline, Release:
+
+```text
+text    data     bss     dec
+29032    120   10840   39992
+```
+
+Current Debug comparison:
+
+```text
+newlib-nano: text=53412 data=120 bss=10840 dec=64372
+picolibc:    text=49848 data=36  bss=10808 dec=60692
+```
+
+Observed Release size attribution:
+
+```text
+HAL/startup/init path: about 19.8 KB
+UART stdio async:     about 0.9 KB
+main/CubeMX glue:     about 0.7 KB
+compiler/libc small:  below 1 KB visible symbols
+```
+
+Current conclusion:
+
+- picolibc is smaller than the newlib-nano baseline in this project.
+- If size becomes tight later, optimize HAL/CubeMX init first, not libc.
+- 64 KB ITCM concern is for code/loadable content; DTCM and D2 RAM buffers are
+  not the limiting factor for that target.
+
+## Memory Targets
+
+Bootloader flash budget:
+
+- Internal flash capacity: 128 KB.
+- Practical short-term target: keep Release loadable content below 64 KB while
+  MCUboot V1 is being integrated.
+
+Runtime RAM:
+
+- DTCM 128 KB is available for stack, `.data`, `.bss`, and work buffers.
+- DMA buffers should remain in D2 RAM where appropriate.
+- AXI SRAM at `0x24000000` is reserved for the RAM-load application image before
+  jumping.
+
+Application V1 limit:
+
+- The signed RAM-load application payload must fit in AXI SRAM 512 KB.
+- `imgtool --slot-size` only checks SPI NOR slot capacity; the bootloader still
+  needs a runtime range check against AXI SRAM.
+
+## Implementation Phases
+
+### Phase 0: Keep The Current Toolchain Stable
+
+- Use `--specs=picolibc.specs` in compile flags.
+- Do not manually define `__PICOLIBC__`.
+- Do not self-append CMake flags that include `picolibc.specs`; CMake may load
+  the toolchain file more than once.
+- Keep `sysmem.c` compatible with picolibc `__strong_reference`.
+
+Done:
+
+- GCC ARM toolchain switched to picolibc.
+- Clean build verified with picolibc map entries.
+
+### Phase 1: Local Shared Definitions
+
+Create local shared headers for bootloader and application use:
+
+- `boot_flash_layout.h`
+- `boot_exchange.h`
+- `boot_update_result.h`
+
+Rules:
+
+- MCUboot path does not use the old custom `AppHeader_t`.
+- MCUboot path does not use the old custom `FlashMetadata_t`.
+- Backup SRAM exchange block remains a handoff/status hint, not a trust root.
+
+Initial constants:
+
+```text
+BY25Q32 total:       4 MB
+slot A:              0x000000 .. 0x0FFFFF
+slot B:              0x100000 .. 0x1FFFFF
+MCUboot trailer:     0x200000 .. 0x20FFFF
+userdata TLV:        0x210000 .. 0x21FFFF
+reserved:            0x220000 .. 0x3FFFFF
+slot size:           0x100000
+RAM load address:    0x24000000
+RAM load size:       0x00080000
+BootExchange addr:   0x38800000
+BootExchange size:   32 bytes
+```
+
+Notes:
+
+- The userdata TLV area is project metadata, not the MCUboot signed-image TLV.
+- MCUboot 2.x normally derives trailer state from the slot layout. Keep the
+  separate trailer area as a project layout decision for now, but validate it
+  against the selected MCUboot RAM-load and revert mode before wiring the
+  flash map glue.
+
+### Phase 2: BY25Q32 Driver And Flash Map
+
+Implement and test the SPI NOR driver before bringing in MCUboot:
+
+- JEDEC ID read.
+- Read and Fast Read.
+- 256-byte Page Program handling page boundaries.
+- 4 KB Sector Erase.
+- Bring-up destructive write/erase test only against reserved sector
+  `0x3FF000`. The current CMake default enables this through
+  `BOOT_FLASH_DESTRUCTIVE_TEST=1`; disable it after hardware bring-up.
+- Optional 64 KB Block Erase later for speed.
+
+Implement MCUboot flash area glue:
+
+- `flash_area_open`
+- `flash_area_close`
+- `flash_area_read`
+- `flash_area_write`
+- `flash_area_erase`
+- `flash_area_align`
+- `flash_area_erased_val`
+- `flash_area_get_sectors`
+- image slot id mapping helpers
+
+Normal boot path should initialize only the minimum needed hardware:
+
+- HSI 64 MHz.
+- GPIO needed for SPI and boot key.
+- SPI1.
+- Backup SRAM access.
+- MCUboot platform glue.
+
+Do not initialize these on normal boot path:
+
+- SDMMC/FATFS.
+- USB CDC.
+- USART recovery.
+- Ethernet.
+- Full application clocks.
+
+### Phase 3: MCUboot Minimal Port
+
+Add MCUboot as a fixed source dependency, preferably pinned to a known commit.
+
+Bring in:
+
+- `boot/bootutil` sources.
+- `mcuboot_config.h`.
+- public key source.
+- crypto backend.
+- logging/assert/platform glue.
+
+First validation goal:
+
+- With empty slots, `boot_go()` should fail cleanly and route to recovery/update
+  handling.
+- No application jump yet.
+
+### Phase 4: Signed RAM-load Application
+
+Create the smallest RAM-load application first.
+
+Application constraints:
+
+- Vector table starts at `0x24000000`.
+- Reset handler is in AXI SRAM image.
+- Startup sets `SCB->VTOR = 0x24000000` early.
+- Optional ITCM/DTCM sections can be copied by application startup later.
+
+Signing command shape:
+
+```sh
+python3 external/mcuboot/scripts/imgtool.py sign \
+  --key keys/dev_ecdsa_p256.pem \
+  --version 1.0.0+0 \
+  --header-size 0x200 \
+  --slot-size 0x100000 \
+  --align 1 \
+  --pad-header \
+  --pad \
+  --load-addr 0x24000000 \
+  build/application.bin \
+  build/application.signed.bin
+```
+
+Validation:
+
+- Manually write a signed image into Slot A.
+- `boot_go()` selects it.
+- Bootloader checks RAM-load address and end address.
+- Bootloader jumps to AXI SRAM application.
+
+### Phase 5: Confirm And Revert
+
+Application should expose stable wrappers:
+
+```c
+int Image_RequestTestUpgrade(void);
+int Image_ConfirmCurrent(void);
+```
+
+Rules:
+
+- Application confirms only after minimum self-test passes.
+- Do not hand-write MCUboot trailer layout across the codebase.
+- If a minimal trailer writer is unavoidable, pin the MCUboot commit and add
+  regression tests for the trailer layout.
+
+Validation:
+
+- New image without confirm reverts on next boot.
+- New image with confirm remains selected across reboot.
+- Corrupted signature is rejected.
+- Empty/corrupt both slots enters update/recovery mode.
+
+### Phase 6: Update Service
+
+Add update paths only after boot/confirm/revert works.
+
+Order:
+
+1. Application OTA writes inactive slot with a signed image.
+2. Bootloader T-Flash update service.
+3. UART YMODEM fallback.
+4. Optional USB CDC recovery.
+
+Rules:
+
+- Payload is always an MCUboot signed image.
+- No raw application binary update path.
+- Update Service can initialize SDMMC/FATFS/USART/USB; normal boot path must not.
+- Failed T-Flash update falls back to YMODEM rather than silently booting as if
+  the update succeeded.
+
+### Phase 7: Size Optimization Only If Needed
+
+Do not optimize HAL prematurely.
+
+Trigger points:
+
+- Release loadable content approaches 64 KB.
+- MCUboot + crypto pushes the internal flash budget close to 128 KB.
+- Normal boot latency is too high because SPI read/copy is too slow.
+
+Optimization order:
+
+1. Disable unused MCUboot features.
+2. Keep recovery features behind build-time options.
+3. Remove unused CubeMX init from the normal boot path.
+4. Replace normal boot RCC/GPIO/SPI setup with LL or direct register writes.
+5. Replace HAL UART/DMA/SPI paths only after the behavior is stable.
+
+Direct register write policy:
+
+- Only freeze register values after the HAL/CubeMX version is proven on hardware.
+- Keep a comment or document reference for clock tree and pin assumptions.
+- Preserve a low-speed SPI fallback if adding a high-speed PLL2P path.
+
+## V2 Segmented Loader Deferral
+
+Do not implement V2 now.
+
+V2 becomes relevant only if the initialized application image no longer fits in
+the AXI SRAM 512 KB RAM-load model.
+
+If V2 becomes necessary:
+
+- Manifest must be inside the signed MCUboot payload.
+- Use ELF as the source of truth for segment generation.
+- Add strict range, overlap, and alignment checks in the bootloader.
+- Do not use stock `MCUBOOT_RAM_LOAD` copy path for the segmented payload.
+
+## Open Decisions
+
+- Exact MCUboot commit/version.
+- Crypto backend: TinyCrypt ECDSA P-256 first, unless size forces another choice.
+- Whether normal boot should use HSI SPI only or add optional PLL2P 60 MHz SPI.
+- Whether T-Flash/FATFS is mandatory in the first recovery milestone or build
+  option only.
+- Application RTOS timing: keep first MCUboot validation bare-metal/HAL, then
+  integrate the target RTOS.
+
+## Verification Checklist
+
+- Clean Debug and Release build.
+- Map confirms picolibc, not newlib-nano.
+- Empty SPI slots enter update/recovery path.
+- Signed Slot A boots.
+- Signed Slot B boots when selected.
+- Unconfirmed image reverts.
+- Confirmed image stays selected.
+- Corrupted signature is rejected.
+- Power loss while writing inactive slot leaves previous confirmed image bootable.
+- Normal boot path does not initialize SDMMC/FATFS/USB/USART recovery.
+- RAM-load address and end address are checked before jump.
