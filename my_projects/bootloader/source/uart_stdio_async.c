@@ -8,8 +8,22 @@
 #define UART_STDIO_RX_DMA_BUFFER_SIZE 4096U
 #endif
 
+#if ((UART_STDIO_RX_DMA_BUFFER_SIZE < 2U) || \
+     ((UART_STDIO_RX_DMA_BUFFER_SIZE & (UART_STDIO_RX_DMA_BUFFER_SIZE - 1U)) != 0U))
+#error "UART_STDIO_RX_DMA_BUFFER_SIZE must be a power of two and at least 2 bytes for modulo ring-buffer wrap."
+#endif
+
+#if (UART_STDIO_RX_DMA_BUFFER_SIZE > 65535U)
+#error "UART_STDIO_RX_DMA_BUFFER_SIZE must fit HAL_UART_Receive_DMA uint16_t Size."
+#endif
+
 #ifndef UART_STDIO_TX_RING_BUFFER_SIZE
 #define UART_STDIO_TX_RING_BUFFER_SIZE 4096U
+#endif
+
+#if ((UART_STDIO_TX_RING_BUFFER_SIZE < 4U) || \
+     ((UART_STDIO_TX_RING_BUFFER_SIZE & (UART_STDIO_TX_RING_BUFFER_SIZE - 1U)) != 0U))
+#error "UART_STDIO_TX_RING_BUFFER_SIZE must be a power of two and at least 4 bytes for modulo ring-buffer wrap."
 #endif
 
 __attribute__((section(".dma_buffer"), aligned(32)))
@@ -25,7 +39,9 @@ static volatile size_t tx_tail_index;
 static volatile size_t tx_dma_len;
 static volatile int tx_dma_active;
 static volatile int stdio_log_enabled = 1;
-static int previous_putchar;
+static volatile int previous_putchar;
+/* Set by ISR; consumed safely in main-context uart_stdio_async_read(). */
+static volatile int rx_reset_pending;
 
 static uint32_t irq_save(void)
 {
@@ -43,11 +59,7 @@ static void irq_restore(uint32_t primask)
 
 static size_t ring_count(size_t head, size_t tail, size_t size)
 {
-    if (head >= tail) {
-        return head - tail;
-    }
-
-    return (size - tail) + head;
+    return (head + size - tail) % size;
 }
 
 static size_t tx_count_locked(void)
@@ -62,11 +74,7 @@ static size_t tx_free_locked(void)
 
 static int tx_ring_put_locked(uint8_t data)
 {
-    size_t next = tx_head_index + 1U;
-
-    if (next >= UART_STDIO_TX_RING_BUFFER_SIZE) {
-        next = 0U;
-    }
+    size_t next = (tx_head_index + 1U) % UART_STDIO_TX_RING_BUFFER_SIZE;
 
     if (next == tx_tail_index) {
         return 0;
@@ -74,6 +82,22 @@ static int tx_ring_put_locked(uint8_t data)
 
     tx_ring_buffer[tx_head_index] = data;
     tx_head_index = next;
+    return 1;
+}
+
+static int tx_ring_put_all_locked(const uint8_t *data, size_t len)
+{
+    size_t offset;
+
+    if (tx_free_locked() < len) {
+        return 0;
+    }
+
+    for (offset = 0U; offset < len; offset++) {
+        tx_ring_buffer[tx_head_index] = data[offset];
+        tx_head_index = (tx_head_index + 1U) % UART_STDIO_TX_RING_BUFFER_SIZE;
+    }
+
     return 1;
 }
 
@@ -96,6 +120,17 @@ static size_t tx_enqueue_raw(const uint8_t *data, size_t len)
     return written;
 }
 
+static int tx_enqueue_all(const uint8_t *data, size_t len)
+{
+    int queued;
+    uint32_t primask = irq_save();
+
+    queued = tx_ring_put_all_locked(data, len);
+    irq_restore(primask);
+
+    return queued;
+}
+
 static void tx_start_next(void)
 {
     uint8_t *tx_ptr;
@@ -116,6 +151,9 @@ static void tx_start_next(void)
     if (tx_head_index > tx_tail_index) {
         len = tx_head_index - tx_tail_index;
     } else {
+        /* Wrap-around: send the contiguous segment from tail to end of buffer.
+         * TxCpltCallback will call tx_start_next() again for the remaining
+         * segment from the start of the buffer up to head. */
         len = UART_STDIO_TX_RING_BUFFER_SIZE - tx_tail_index;
     }
 
@@ -123,18 +161,36 @@ static void tx_start_next(void)
         len = UINT16_MAX;
     }
 
-    tx_ptr = &tx_ring_buffer[tx_tail_index];
-    tx_dma_len = len;
+    tx_ptr    = &tx_ring_buffer[tx_tail_index];
+    tx_dma_len    = len;
+    /* Set tx_dma_active BEFORE releasing the critical section so that any
+     * concurrent caller of tx_start_next() (e.g. from __io_putchar) sees
+     * the flag and exits early.  HAL_UART_Transmit_DMA is intentionally
+     * called outside the critical section: HAL may take spin-locks internally
+     * and must not run with interrupts disabled on Cortex-M.  No ISR can
+     * race here because the only ISR that clears tx_dma_active is
+     * TxCpltCallback, which cannot fire for a DMA transfer that has not
+     * been started yet. */
     tx_dma_active = 1;
     irq_restore(primask);
 
     status = HAL_UART_Transmit_DMA(stdio_uart, tx_ptr, (uint16_t)len);
-    if (status != HAL_OK) {
-        primask = irq_save();
-        tx_dma_active = 0;
-        tx_dma_len = 0U;
-        irq_restore(primask);
+    if (status == HAL_OK) {
+        return;  /* DMA launched successfully, callback will advance tail. */
     }
+
+    /* Launch failed.  If the HAL state machine is merely BUSY it means the
+     * UART peripheral is in an inconsistent state; abort the peripheral so
+     * that the HAL can be reused.  In both error cases clear the driver
+     * flags so that uart_stdio_async_poll() can schedule a retry. */
+    if (status == HAL_BUSY) {
+        (void)HAL_UART_AbortTransmit(stdio_uart);
+    }
+
+    primask = irq_save();
+    tx_dma_active = 0;
+    tx_dma_len    = 0U;
+    irq_restore(primask);
 }
 
 static size_t rx_write_index_get(void)
@@ -146,11 +202,11 @@ static size_t rx_write_index_get(void)
     }
 
     remaining = (size_t)__HAL_DMA_GET_COUNTER(stdio_uart->hdmarx);
-    if (remaining >= UART_STDIO_RX_DMA_BUFFER_SIZE) {
+    if (remaining > UART_STDIO_RX_DMA_BUFFER_SIZE) {
         return 0U;
     }
 
-    return UART_STDIO_RX_DMA_BUFFER_SIZE - remaining;
+    return (UART_STDIO_RX_DMA_BUFFER_SIZE - remaining) % UART_STDIO_RX_DMA_BUFFER_SIZE;
 }
 
 int uart_stdio_async_init(UART_HandleTypeDef *huart)
@@ -160,16 +216,26 @@ int uart_stdio_async_init(UART_HandleTypeDef *huart)
         return -1;
     }
 
+    /* Verify DMA circular mode: rx_write_index_get() relies on the DMA
+     * counter wrapping automatically.  Normal (non-circular) mode would
+     * stop after one buffer fill and silently block all further RX. */
+    if ((huart->hdmarx == NULL) ||
+        (huart->hdmarx->Init.Mode != DMA_CIRCULAR)) {
+        errno = EINVAL;
+        return -1;
+    }
+
     memset(rx_dma_buffer, 0, sizeof(rx_dma_buffer));
     memset(tx_ring_buffer, 0, sizeof(tx_ring_buffer));
 
-    rx_read_index = 0U;
-    tx_head_index = 0U;
-    tx_tail_index = 0U;
-    tx_dma_len = 0U;
-    tx_dma_active = 0;
+    rx_read_index    = 0U;
+    rx_reset_pending = 0;
+    tx_head_index    = 0U;
+    tx_tail_index    = 0U;
+    tx_dma_len       = 0U;
+    tx_dma_active    = 0;
     previous_putchar = 0;
-    stdio_uart = huart;
+    stdio_uart       = huart;
 
     if (HAL_UART_Receive_DMA(stdio_uart, rx_dma_buffer,
                              (uint16_t)UART_STDIO_RX_DMA_BUFFER_SIZE) != HAL_OK) {
@@ -225,6 +291,21 @@ size_t uart_stdio_async_read(uint8_t *data, size_t len)
         return 0U;
     }
 
+    /* Consume pending RX reset that was requested by HAL_UART_ErrorCallback.
+     * Handled here (main context) to avoid a race between the ISR zeroing
+     * rx_read_index while the main loop is mid-read. */
+    if (rx_reset_pending != 0) {
+        uint32_t primask = irq_save();
+        rx_reset_pending = 0;
+        rx_read_index    = 0U;
+        irq_restore(primask);
+
+        (void)HAL_UART_AbortReceive(stdio_uart);
+        (void)HAL_UART_Receive_DMA(stdio_uart, rx_dma_buffer,
+                                   (uint16_t)UART_STDIO_RX_DMA_BUFFER_SIZE);
+        return 0U;
+    }
+
     while (read_len < len) {
         size_t write_index = rx_write_index_get();
 
@@ -233,10 +314,7 @@ size_t uart_stdio_async_read(uint8_t *data, size_t len)
         }
 
         data[read_len] = rx_dma_buffer[rx_read_index];
-        rx_read_index++;
-        if (rx_read_index >= UART_STDIO_RX_DMA_BUFFER_SIZE) {
-            rx_read_index = 0U;
-        }
+        rx_read_index = (rx_read_index + 1U) % UART_STDIO_RX_DMA_BUFFER_SIZE;
         read_len++;
     }
 
@@ -245,6 +323,13 @@ size_t uart_stdio_async_read(uint8_t *data, size_t len)
 
 size_t uart_stdio_async_rx_available(void)
 {
+    /* A reset is pending: report nothing available so callers do not
+     * attempt to read stale data before uart_stdio_async_read() has had
+     * a chance to abort and restart the DMA. */
+    if (rx_reset_pending != 0) {
+        return 0U;
+    }
+
     return ring_count(rx_write_index_get(), rx_read_index, UART_STDIO_RX_DMA_BUFFER_SIZE);
 }
 
@@ -259,11 +344,29 @@ size_t uart_stdio_async_tx_free(void)
     return free_len;
 }
 
+/* Poll function: recovers from a TX DMA launch failure.
+ * Call periodically from the main loop when using uart_stdio_async_write()
+ * in a non-blocking manner, to ensure data is not permanently stuck in the
+ * ring buffer after a transient HAL_UART_Transmit_DMA() error. */
+void uart_stdio_async_poll(void)
+{
+    uint32_t primask = irq_save();
+    int need_start = ((tx_dma_active == 0) && (tx_head_index != tx_tail_index));
+    irq_restore(primask);
+
+    if (need_start != 0) {
+        tx_start_next();
+    }
+}
+
 int uart_stdio_async_flush(uint32_t timeout_ms)
 {
     uint32_t start = HAL_GetTick();
 
     while (1) {
+        /* Recover from any stale DMA failure while waiting. */
+        uart_stdio_async_poll();
+
         uint32_t primask = irq_save();
         int done = ((tx_dma_active == 0) && (tx_head_index == tx_tail_index));
         irq_restore(primask);
@@ -300,7 +403,7 @@ int __io_putchar(int ch)
 
     data[len++] = (uint8_t)ch;
 
-    if (tx_enqueue_raw(data, len) != len) {
+    if (tx_enqueue_all(data, len) == 0) {
         errno = EAGAIN;
         return -1;
     }
@@ -344,7 +447,7 @@ int _write(int file, char *ptr, int len)
         }
         data[out_len++] = (uint8_t)ch;
 
-        if (tx_enqueue_raw(data, out_len) != out_len) {
+        if (tx_enqueue_all(data, out_len) == 0) {
             break;
         }
 
@@ -399,10 +502,7 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
     }
 
     primask = irq_save();
-    tx_tail_index += tx_dma_len;
-    if (tx_tail_index >= UART_STDIO_TX_RING_BUFFER_SIZE) {
-        tx_tail_index -= UART_STDIO_TX_RING_BUFFER_SIZE;
-    }
+    tx_tail_index = (tx_tail_index + tx_dma_len) % UART_STDIO_TX_RING_BUFFER_SIZE;
     tx_dma_len = 0U;
     tx_dma_active = 0;
     irq_restore(primask);
@@ -412,9 +512,13 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
-    if ((huart == stdio_uart) && (huart->RxState == HAL_UART_STATE_READY)) {
-        rx_read_index = 0U;
-        (void)HAL_UART_Receive_DMA(stdio_uart, rx_dma_buffer,
-                                   (uint16_t)UART_STDIO_RX_DMA_BUFFER_SIZE);
+    if (huart != stdio_uart) {
+        return;
     }
+
+    /* Signal main context to perform a safe RX reset.
+     * Directly mutating rx_read_index here races with uart_stdio_async_read();
+     * AbortReceive + Receive_DMA also must not nest inside an active DMA ISR.
+     * The flag is consumed in uart_stdio_async_read() at a safe point. */
+    rx_reset_pending = 1;
 }
