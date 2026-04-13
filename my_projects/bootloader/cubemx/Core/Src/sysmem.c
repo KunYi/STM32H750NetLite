@@ -24,6 +24,9 @@
 #include <errno.h>
 #include <stdint.h>
 #include <stddef.h>
+#if defined(__PICOLIBC__)
+#include <sys/cdefs.h>
+#endif
 
 /**
  * Pointer to the current high watermark of the heap usage
