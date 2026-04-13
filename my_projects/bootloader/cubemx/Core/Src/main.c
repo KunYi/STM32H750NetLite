@@ -21,8 +21,10 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include <stdio.h>
+#include <string.h>
 
+#include "boot_flash_layout.h"
+#include "by25q32es.h"
 #include "uart_stdio_async.h"
 
 /* USER CODE END Includes */
@@ -34,6 +36,13 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#ifndef BOOT_FLASH_SELF_TEST
+#define BOOT_FLASH_SELF_TEST 1
+#endif
+
+#ifndef BOOT_FLASH_DESTRUCTIVE_TEST
+#define BOOT_FLASH_DESTRUCTIVE_TEST 1
+#endif
 
 /* USER CODE END PD */
 
@@ -62,6 +71,15 @@ static void MX_DMA_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
+static void BootFlash_SelfTest(void);
+static void BootFlash_LogString(const char *text);
+#if BOOT_FLASH_SELF_TEST
+static void BootFlash_LogHex8(uint8_t value);
+static void BootFlash_LogHex32(uint32_t value);
+#endif
+#if BOOT_FLASH_SELF_TEST && BOOT_FLASH_DESTRUCTIVE_TEST
+static void BootFlash_LogHex24(uint32_t value);
+#endif
 
 /* USER CODE END PFP */
 
@@ -107,7 +125,8 @@ int main(void)
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
   (void)uart_stdio_async_init(&huart1);
-  printf("Hello World - UART Async Example\r\n");
+  BootFlash_LogString("Hello World - BootFlash\r\n");
+  BootFlash_SelfTest();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -150,7 +169,7 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLM = 5;
   RCC_OscInitStruct.PLL.PLLN = 160;
   RCC_OscInitStruct.PLL.PLLP = 2;
-  RCC_OscInitStruct.PLL.PLLQ = 10;
+  RCC_OscInitStruct.PLL.PLLQ = 12;
   RCC_OscInitStruct.PLL.PLLR = 16;
   RCC_OscInitStruct.PLL.PLLRGE = RCC_PLL1VCIRANGE_2;
   RCC_OscInitStruct.PLL.PLLVCOSEL = RCC_PLL1VCOWIDE;
@@ -198,7 +217,7 @@ static void MX_SPI1_Init(void)
   hspi1.Instance = SPI1;
   hspi1.Init.Mode = SPI_MODE_MASTER;
   hspi1.Init.Direction = SPI_DIRECTION_2LINES;
-  hspi1.Init.DataSize = SPI_DATASIZE_4BIT;
+  hspi1.Init.DataSize = SPI_DATASIZE_8BIT;
   hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi1.Init.NSS = SPI_NSS_SOFT;
@@ -315,10 +334,10 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(FLASH_CS_GPIO_Port, FLASH_CS_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(FLASH_CS_GPIO_Port, FLASH_CS_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pins : PE2 PE3 PE4 PE5
                            PE6 PE7 PE8 PE9
@@ -372,8 +391,8 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin : FLASH_CS_Pin */
   GPIO_InitStruct.Pin = FLASH_CS_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_MEDIUM;
   HAL_GPIO_Init(FLASH_CS_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PB0 PB1 PB2 PB10
@@ -409,6 +428,123 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+static void BootFlash_LogString(const char *text)
+{
+  if (text != NULL) {
+    (void)uart_stdio_async_write((const uint8_t *)text, strlen(text));
+  }
+}
+
+#if BOOT_FLASH_SELF_TEST
+static void BootFlash_LogHex8(uint8_t value)
+{
+  static const char hex_digits[] = "0123456789ABCDEF";
+  char text[2];
+
+  text[0] = hex_digits[(value >> 4) & 0x0FU];
+  text[1] = hex_digits[value & 0x0FU];
+  (void)uart_stdio_async_write((const uint8_t *)text, sizeof(text));
+}
+
+static void BootFlash_LogHex32(uint32_t value)
+{
+  BootFlash_LogHex8((uint8_t)(value >> 24));
+  BootFlash_LogHex8((uint8_t)(value >> 16));
+  BootFlash_LogHex8((uint8_t)(value >> 8));
+  BootFlash_LogHex8((uint8_t)value);
+}
+#endif
+
+#if BOOT_FLASH_SELF_TEST && BOOT_FLASH_DESTRUCTIVE_TEST
+static void BootFlash_LogHex24(uint32_t value)
+{
+  BootFlash_LogHex8((uint8_t)(value >> 16));
+  BootFlash_LogHex8((uint8_t)(value >> 8));
+  BootFlash_LogHex8((uint8_t)value);
+}
+#endif
+
+static void BootFlash_SelfTest(void)
+{
+#if BOOT_FLASH_SELF_TEST
+  static const uint8_t pattern[] = {
+      0x42U, 0x59U, 0x32U, 0x35U, 0x51U, 0x33U, 0x32U, 0x45U,
+      0x53U, 0x20U, 0x62U, 0x72U, 0x69U, 0x6EU, 0x67U, 0x75U,
+      0x70U, 0x20U, 0x74U, 0x65U, 0x73U, 0x74U, 0x0DU, 0x0AU,
+  };
+  uint8_t readback[sizeof(pattern)] = {0U};
+  BY25Q32ES_Handle flash;
+  BY25Q32ES_JedecId jedec = {0U};
+  int ret;
+
+  ret = BY25Q32ES_Init(&flash, &hspi1, FLASH_CS_GPIO_Port, FLASH_CS_Pin, 100U);
+  if (ret != BY25Q32ES_OK) {
+    BootFlash_LogString("BY25Q32ES init failed, err=0x");
+    BootFlash_LogHex32((uint32_t)ret);
+    BootFlash_LogString("\r\n");
+    return;
+  }
+
+  ret = BY25Q32ES_ReadJedecId(&flash, &jedec);
+  if (ret != BY25Q32ES_OK) {
+    BootFlash_LogString("BY25Q32ES JEDEC read failed, err=0x");
+    BootFlash_LogHex32((uint32_t)ret);
+    BootFlash_LogString("\r\n");
+    return;
+  }
+
+  BootFlash_LogString("BY25Q32ES JEDEC ID: ");
+  BootFlash_LogHex8(jedec.manufacturer_id);
+  BootFlash_LogString(" ");
+  BootFlash_LogHex8(jedec.memory_type);
+  BootFlash_LogString(" ");
+  BootFlash_LogHex8(jedec.capacity);
+  BootFlash_LogString("\r\n");
+
+#if BOOT_FLASH_DESTRUCTIVE_TEST
+  ret = BY25Q32ES_EraseSector4K(&flash, BOOT_FLASH_SELF_TEST_OFFSET);
+  if (ret != BY25Q32ES_OK) {
+    BootFlash_LogString("BY25Q32ES sector erase failed @0x");
+    BootFlash_LogHex24(BOOT_FLASH_SELF_TEST_OFFSET);
+    BootFlash_LogString(", err=0x");
+    BootFlash_LogHex32((uint32_t)ret);
+    BootFlash_LogString("\r\n");
+    return;
+  }
+
+  ret = BY25Q32ES_Program(&flash, BOOT_FLASH_SELF_TEST_OFFSET, pattern, sizeof(pattern));
+  if (ret != BY25Q32ES_OK) {
+    BootFlash_LogString("BY25Q32ES program failed @0x");
+    BootFlash_LogHex24(BOOT_FLASH_SELF_TEST_OFFSET);
+    BootFlash_LogString(", err=0x");
+    BootFlash_LogHex32((uint32_t)ret);
+    BootFlash_LogString("\r\n");
+    return;
+  }
+
+  ret = BY25Q32ES_Read(&flash, BOOT_FLASH_SELF_TEST_OFFSET, readback, sizeof(readback));
+  if (ret != BY25Q32ES_OK) {
+    BootFlash_LogString("BY25Q32ES readback failed @0x");
+    BootFlash_LogHex24(BOOT_FLASH_SELF_TEST_OFFSET);
+    BootFlash_LogString(", err=0x");
+    BootFlash_LogHex32((uint32_t)ret);
+    BootFlash_LogString("\r\n");
+    return;
+  }
+
+  if (memcmp(readback, pattern, sizeof(pattern)) != 0) {
+    BootFlash_LogString("BY25Q32ES verify failed @0x");
+    BootFlash_LogHex24(BOOT_FLASH_SELF_TEST_OFFSET);
+    BootFlash_LogString("\r\n");
+    return;
+  }
+
+  BootFlash_LogString("BY25Q32ES erase/program/read verify OK @0x");
+  BootFlash_LogHex24(BOOT_FLASH_SELF_TEST_OFFSET);
+  BootFlash_LogString("\r\n");
+#endif
+#endif
+}
 
 /* USER CODE END 4 */
 
