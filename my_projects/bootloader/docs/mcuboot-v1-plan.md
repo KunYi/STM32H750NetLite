@@ -128,18 +128,45 @@ Notes:
   against the selected MCUboot RAM-load and revert mode before wiring the
   flash map glue.
 
-### Phase 2: BY25Q32 Driver And Flash Map
+### Phase 2: BY25Q32 Driver Bring-Up
 
-Implement and test the SPI NOR driver before bringing in MCUboot:
+Status: completed.
+
+Implemented and tested the SPI NOR driver before bringing in MCUboot:
 
 - JEDEC ID read.
 - Read and Fast Read.
 - 256-byte Page Program handling page boundaries.
 - 4 KB Sector Erase.
-- Bring-up destructive write/erase test only against reserved sector
-  `0x3FF000`. The current CMake default enables this through
-  `BOOT_FLASH_DESTRUCTIVE_TEST=1`; disable it after hardware bring-up.
-- Optional 64 KB Block Erase later for speed.
+- Optional 64 KB Block Erase.
+- Bring-up destructive write/erase/read verify against reserved sector
+  `0x3FF000`.
+- Async UART stdio for bring-up logging.
+- Verify code split out of `main.c` into `source/verify/` modules.
+
+Current test control:
+
+- `BOOT_FLASH_SELF_TEST=ON` compiles and runs boot verify modules.
+- `BOOT_FLASH_SELF_TEST=OFF` does not compile `source/verify/` sources.
+- `BOOT_FLASH_DESTRUCTIVE_TEST=ON` enables the reserved-sector destructive
+  erase/program/read verify.
+
+Notes:
+
+- Keep software GPIO CS for BY25Q32ES for now. Hardware NSS can be revisited
+  later, but SPI NOR command/address/data phases currently need explicit CS
+  control across multiple HAL calls.
+- Do not introduce `HAL_SPI_TransmitReceive()` unless it clearly improves code
+  size or transaction behavior; the current transmit/receive model is working
+  on hardware and is easier to review.
+
+### Phase 3: MCUboot Minimal Port
+
+Status: next.
+
+Add MCUboot as a fixed source dependency, preferably pinned to a known commit.
+
+First bring-up tasks:
 
 Implement MCUboot flash area glue:
 
@@ -169,16 +196,14 @@ Do not initialize these on normal boot path:
 - Ethernet.
 - Full application clocks.
 
-### Phase 3: MCUboot Minimal Port
-
-Add MCUboot as a fixed source dependency, preferably pinned to a known commit.
-
 Bring in:
 
 - `boot/bootutil` sources.
 - `mcuboot_config.h`.
 - public key source.
-- crypto backend.
+- Ed25519 signature verification.
+- TinyCrypt backend with the bundled tinycrypt-based SHA-512 path for Ed25519,
+  avoiding Mbed TLS in the first port.
 - logging/assert/platform glue.
 
 First validation goal:
@@ -186,6 +211,14 @@ First validation goal:
 - With empty slots, `boot_go()` should fail cleanly and route to recovery/update
   handling.
 - No application jump yet.
+
+Crypto notes:
+
+- Use `imgtool` Ed25519 keys and signed images for the Phase 3 port.
+- Pin the MCUboot commit before wiring the crypto files, then verify that the
+  selected commit contains the Ed25519 + tinycrypt SHA-512 verification path.
+- Keep RSA and ECDSA disabled unless Ed25519 code size or porting issues force
+  a fallback.
 
 ### Phase 4: Signed RAM-load Application
 
@@ -202,7 +235,7 @@ Signing command shape:
 
 ```sh
 python3 external/mcuboot/scripts/imgtool.py sign \
-  --key keys/dev_ecdsa_p256.pem \
+  --key keys/dev_ed25519.pem \
   --version 1.0.0+0 \
   --header-size 0x200 \
   --slot-size 0x100000 \
@@ -304,7 +337,8 @@ If V2 becomes necessary:
 ## Open Decisions
 
 - Exact MCUboot commit/version.
-- Crypto backend: TinyCrypt ECDSA P-256 first, unless size forces another choice.
+- Crypto backend: Ed25519 with TinyCrypt and bundled tinycrypt-based SHA-512
+  first, unless the pinned MCUboot commit or code size forces another choice.
 - Whether normal boot should use HSI SPI only or add optional PLL2P 60 MHz SPI.
 - Whether T-Flash/FATFS is mandatory in the first recovery milestone or build
   option only.
