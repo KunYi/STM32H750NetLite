@@ -13,21 +13,24 @@ static void BootUpdate_LogString(const char *text)
     }
 }
 
-static BootUpdate_Result BootUpdate_TryYModem(void)
+static BootUpdate_Result BootUpdate_TryYModem(BootYmodem_Image *image)
 {
-    BootYmodem_Image image;
     BootYmodem_Result ymodem_result;
+
+    if (image == NULL) {
+        return BOOT_UPDATE_RESULT_FAILED;
+    }
 
     BootUpdate_LogString("Update: YMODEM receive start\r\n");
     (void)uart_stdio_async_flush(1000U);
     uart_stdio_async_set_log_enabled(0);
 
-    ymodem_result = BootYmodem_ReceiveToRam(&image);
+    ymodem_result = BootYmodem_ReceiveToRam(image);
 
     uart_stdio_async_set_log_enabled(1);
     if (ymodem_result == BOOT_YMODEM_RESULT_OK) {
         BootUpdate_LogString("Update: YMODEM image received into AXI SRAM: ");
-        BootUpdate_LogString(image.filename);
+        BootUpdate_LogString(image->filename);
         BootUpdate_LogString("\r\n");
         return BOOT_UPDATE_RESULT_IMAGE_WRITTEN;
     }
@@ -50,13 +53,13 @@ static void BootUpdate_MarkTransportUnavailable(BootUpdate_Result *result)
     }
 }
 
-BootUpdate_Result BootUpdate_RunRecovery(void)
+BootUpdate_Result BootUpdate_RunRecovery(BootYmodem_Image *image)
 {
     BootUpdate_Result result = BOOT_UPDATE_RESULT_NO_IMAGE;
 
     BootUpdate_LogString("Update: recovery/update handler start\r\n");
 
-    result = BootUpdate_TryYModem();
+    result = BootUpdate_TryYModem(image);
     if (result == BOOT_UPDATE_RESULT_IMAGE_WRITTEN) {
         return result;
     }

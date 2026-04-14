@@ -12,6 +12,7 @@ extern "C" {
 #endif
 
 int    uart_stdio_async_init(UART_HandleTypeDef *huart);
+void   uart_stdio_async_deinit(void);
 int    uart_stdio_async_write(const uint8_t *data, size_t len);
 int    uart_stdio_async_getchar(void);
 size_t uart_stdio_async_read(uint8_t *data, size_t len);

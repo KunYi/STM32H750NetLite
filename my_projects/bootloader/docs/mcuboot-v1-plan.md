@@ -319,6 +319,8 @@ Initial validation:
 
 ### Phase 5: Signed RAM-load Application From AXI SRAM
 
+Status: in progress.
+
 Create the smallest RAM-load application first.
 
 Application constraints:
@@ -332,30 +334,89 @@ Signing command shape:
 
 Use the repository test key only for bring-up. Replace `keys/root.pem` with the
 deployment root key and rebuild the bootloader public key source before shipping.
+The App demo uses the `App` CMake `sign` target, which signs a RAM-load image
+with a `0x200` MCUboot header and `--load-addr 0x24000000`.
 
 ```sh
-python3 external/mcuboot/scripts/imgtool.py sign \
+python3 mcuboot/scripts/imgtool.py sign \
   --key keys/root.pem \
   --version 1.0.0+0 \
   --header-size 0x200 \
-  --slot-size 0x100000 \
+  --slot-size 0x80000 \
   --align 1 \
   --pad-header \
-  --pad \
   --load-addr 0x24000000 \
-  build/application.bin \
-  build/application.signed.bin
+  App/build/Release/STM32H750NetLiteApp.bin \
+  App/build/Release/STM32H750NetLiteApp.signed.bin
 ```
+
+Current implementation status:
+
+- The Phase 5 bring-up path reuses the Phase 4 YMODEM AXI SRAM staging buffer.
+- Phase 5 diagnostic logging is controlled by
+  `BOOT_RAM_IMAGE_DIAGNOSTIC_LOG`; it defaults to `OFF` and can be enabled
+  during handoff debug to identify validation, relocation, vector-check, and
+  final jump progress.
+- `BootUpdate_RunRecovery()` returns the received RAM image metadata to the
+  MCUboot bring-up path.
+- `BootRamImage_ValidateRelocateAndJump()` validates the staged signed image
+  through MCUboot `bootutil_img_validate()` using a RAM-backed `flash_area`.
+- Because the signed file begins with the `0x200` MCUboot header, the payload is
+  relocated with `memmove()` from `0x24000000 + ih_hdr_size` to `ih_load_addr`
+  before jump.
+- The bootloader checks the relocated vector table, cleans the relocated payload
+  D-cache range only when runtime state shows D-cache is enabled, stops SysTick,
+  disables and clears NVIC interrupts, deinitializes bootloader UART/DMA
+  resources, invalidates I-cache, sets `VTOR`, and enters the application
+  through a naked no-return assembly helper that switches `MSP`, restores
+  privileged thread mode, re-enables global IRQ, and branches to the reset
+  handler.
+- Vector validation accepts the initial MSP at the RAM top boundary, such as
+  DTCM `_estack == 0x20020000`, and checks the Reset_Handler address after
+  masking off the Thumb bit.
+- The vector validation is intentionally a Phase 5 bring-up profile, not a
+  general user-application contract. It assumes `load_addr`, vector table, and
+  Reset_Handler are in the AXI SRAM app range, and that initial MSP is in known
+  internal SRAM.
+- Global interrupts are re-enabled immediately before entering the application
+  reset handler. Peripheral IRQs remain disabled/cleared until the App
+  reinitializes them, matching the reset-like handoff model while still allowing
+  App startup, SysTick, and UART DMA to run normally after initialization.
+- GDB captures showed both full `SCB_CleanInvalidateDCache()` and address-based
+  `SCB_CleanDCache_by_Addr(0x24000000, aligned_ih_img_size)` causing imprecise
+  BusFault before final handoff while `VTOR` still pointed at `0x08000000` when
+  D-cache was disabled. Phase 5 therefore checks `SCB->CCR & SCB_CCR_DC_Msk`
+  before calling CMSIS D-cache maintenance APIs. The CMSIS helpers are guarded
+  by compile-time cache presence, not by the current D-cache enable state.
+- Long-term target: replace the relocation step with a scatter receive path
+  where header/TLV metadata can live in DTCM and the payload is written directly
+  to AXI SRAM `0x24000000`.
+- Future application compatibility must not silently loosen these checks. Add a
+  build-time macro to select strict vector validation, or define an explicit
+  user-application trailer at the end of the payload with a small magic/version
+  and CRC32 before accepting more flexible layouts.
 
 Validation:
 
 - Use Phase 4 YMODEM recovery to write a signed image into AXI SRAM.
-- Bootloader validates the signed image before jump. If full MCUboot validation
-  cannot be reused directly from RAM, keep this path debug-only until the SPI
-  NOR validation path in Phase 6 is active.
+- Bootloader validates the signed image before jump.
 - Bootloader checks RAM-load address and end address.
 - Bootloader jumps to AXI SRAM application.
 - Application proves the reset handler, vector table, and minimum runtime path.
+- Hardware validation pending after the IRQ handoff fix; expected UART output is
+  `AXI SRAM UART demo app start`, `VTOR=0x24000000`, then heartbeat logs.
+- During diagnostic bring-up, the bootloader emits
+  `RAM image D-cache clean skipped: D-cache disabled`, then
+  `RAM image final jump: VTOR=... SP=... PC=...` before UART/DMA deinit when
+  `BOOT_RAM_IMAGE_DIAGNOSTIC_LOG=ON`.
+- Hardware re-test with the bootloader MPU restored to the original CubeMX
+  configuration still passes, confirming the fix is guarding D-cache maintenance
+  by runtime D-cache state, not the temporary AXI SRAM MPU region experiment.
+- Host-side transfer/log tooling is not required for this debug step; minicom is
+  sufficient for observing the bootloader and App UART logs.
+- If a later user application does not match the Phase 5 RAM-load profile,
+  validation must fail closed unless the selected macro/trailer policy explicitly
+  authorizes that layout.
 
 ### Phase 6: SPI NOR Slot Update, Confirm, And Revert
 

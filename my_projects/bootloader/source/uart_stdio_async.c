@@ -294,6 +294,27 @@ int uart_stdio_async_init(UART_HandleTypeDef *huart)
     return 0;
 }
 
+void uart_stdio_async_deinit(void)
+{
+    UART_HandleTypeDef *huart = stdio_uart;
+    uint32_t primask;
+
+    primask = irq_save();
+    stdio_uart       = NULL;
+    rx_read_index    = 0U;
+    rx_reset_pending = 0;
+    tx_head_index    = 0U;
+    tx_tail_index    = 0U;
+    tx_dma_len       = 0U;
+    tx_dma_active    = 0;
+    irq_restore(primask);
+
+    if (huart != NULL) {
+        (void)HAL_UART_Abort(huart);
+        (void)HAL_UART_DeInit(huart);
+    }
+}
+
 int uart_stdio_async_write(const uint8_t *data, size_t len)
 {
     size_t written;

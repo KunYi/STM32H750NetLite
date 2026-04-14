@@ -2,6 +2,8 @@
 #ifndef BOOT_UPDATE_H
 #define BOOT_UPDATE_H
 
+#include "boot_ymodem.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -13,7 +15,7 @@ typedef enum {
     BOOT_UPDATE_RESULT_FAILED,
 } BootUpdate_Result;
 
-BootUpdate_Result BootUpdate_RunRecovery(void);
+BootUpdate_Result BootUpdate_RunRecovery(BootYmodem_Image *image);
 
 #ifdef __cplusplus
 }

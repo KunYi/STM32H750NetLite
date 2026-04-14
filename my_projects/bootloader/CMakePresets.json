@@ -9,7 +9,8 @@
             "toolchainFile": "${sourceDir}/cmake/gcc-arm-none-eabi.cmake",
             "cacheVariables": {
                 "BOOT_FLASH_SELF_TEST": "OFF",
-                "BOOT_FLASH_DESTRUCTIVE_TEST": "OFF"
+                "BOOT_FLASH_DESTRUCTIVE_TEST": "OFF",
+                "BOOT_RAM_IMAGE_DIAGNOSTIC_LOG": "OFF"
             }
         },
         {

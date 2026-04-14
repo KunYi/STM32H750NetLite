@@ -6,8 +6,11 @@
 #include "sysflash/sysflash.h"
 
 #include <stddef.h>
+#include <stdint.h>
+#include <string.h>
 
 #define BOOT_FLASH_DEVICE_ID 0U
+#define BOOT_RAM_IMAGE_DEVICE_ID 1U
 #define BOOT_FLASH_TIMEOUT_MS 100U
 
 extern SPI_HandleTypeDef hspi1;
@@ -104,6 +107,8 @@ void flash_area_close(const struct flash_area *fa)
 
 int flash_area_read(const struct flash_area *fa, uint32_t off, void *dst, uint32_t len)
 {
+    uintptr_t src;
+
     if ((dst == NULL) && (len > 0U)) {
         return -1;
     }
@@ -113,6 +118,15 @@ int flash_area_read(const struct flash_area *fa, uint32_t off, void *dst, uint32
     }
 
     if (len == 0U) {
+        return 0;
+    }
+
+    if (fa->fa_device_id == BOOT_RAM_IMAGE_DEVICE_ID) {
+        if (off > (UINTPTR_MAX - (uintptr_t)fa->fa_off)) {
+            return -1;
+        }
+        src = (uintptr_t)fa->fa_off + (uintptr_t)off;
+        memcpy(dst, (const void *)src, len);
         return 0;
     }
 
@@ -135,6 +149,10 @@ int flash_area_write(const struct flash_area *fa, uint32_t off, const void *src,
 
     if (len == 0U) {
         return 0;
+    }
+
+    if (fa->fa_device_id == BOOT_RAM_IMAGE_DEVICE_ID) {
+        return -1;
     }
 
     if (ensure_boot_flash_ready() != 0) {
@@ -160,6 +178,10 @@ int flash_area_erase(const struct flash_area *fa, uint32_t off, uint32_t len)
 
     if (len == 0U) {
         return 0;
+    }
+
+    if (fa->fa_device_id == BOOT_RAM_IMAGE_DEVICE_ID) {
+        return -1;
     }
 
     if (ensure_boot_flash_ready() != 0) {
