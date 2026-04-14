@@ -3,3 +3,32 @@
 
 # Local signing keys; generated public key material belongs in source.
 keys/*.pem
+
+# Keep a full MCUboot checkout locally for easier upstream refreshes, but only
+# track the subset vendored into this bootloader build.
+mcuboot/*
+!mcuboot/.gitignore
+!mcuboot/LICENSE
+!mcuboot/NOTICE
+!mcuboot/boot/
+mcuboot/boot/*
+!mcuboot/boot/bootutil/
+!mcuboot/ext/
+mcuboot/ext/*
+!mcuboot/ext/fiat/
+!mcuboot/ext/mbedtls-asn1/
+!mcuboot/ext/tinycrypt/
+!mcuboot/ext/tinycrypt-sha512/
+!mcuboot/scripts/
+mcuboot/scripts/*
+!mcuboot/scripts/assemble.py
+!mcuboot/scripts/flash.sh
+!mcuboot/scripts/gdb-boot.sh
+!mcuboot/scripts/imgtool.nix
+!mcuboot/scripts/imgtool.py
+!mcuboot/scripts/imgtool/
+!mcuboot/scripts/jgdb.sh
+!mcuboot/scripts/jl.sh
+!mcuboot/scripts/mcubin.bt
+!mcuboot/scripts/requirements.txt
+!mcuboot/scripts/setup.py
