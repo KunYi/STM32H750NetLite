@@ -100,6 +100,14 @@ Create local shared headers for bootloader and application use:
 - `boot_exchange.h`
 - `boot_update_result.h`
 
+Current design convergence:
+
+- `boot_flash_layout.h` is the active shared layout header.
+- `BootUpdate_Result` is currently kept with the recovery/update API in
+  `boot_update.h` instead of a separate `boot_update_result.h`.
+- `boot_exchange.h` is deferred until the backup SRAM handoff/status block is
+  needed by confirm/revert or application status reporting.
+
 Rules:
 
 - MCUboot path does not use the old custom `AppHeader_t`.
@@ -193,11 +201,18 @@ Normal boot path should initialize only the minimum needed hardware:
 - Backup SRAM access.
 - MCUboot platform glue.
 
-Do not initialize these on normal boot path:
+Do not initialize these on final production normal boot path unless selected by
+the recovery/debug policy:
 
 - USART recovery.
 - Ethernet.
 - Full application clocks.
+
+Current bring-up note: USART remains initialized for logging, YMODEM recovery,
+and handoff debugging. The RAM-load handoff deinitializes the bootloader
+UART/DMA resources before jumping to the application. The final normal boot
+path can tighten initialization once SPI NOR slot boot, confirm, and revert are
+wired.
 
 Bring in:
 
@@ -319,7 +334,7 @@ Initial validation:
 
 ### Phase 5: Signed RAM-load Application From AXI SRAM
 
-Status: in progress.
+Status: completed for the Phase 5 AXI SRAM RAM-load bring-up.
 
 Create the smallest RAM-load application first.
 
@@ -403,8 +418,9 @@ Validation:
 - Bootloader checks RAM-load address and end address.
 - Bootloader jumps to AXI SRAM application.
 - Application proves the reset handler, vector table, and minimum runtime path.
-- Hardware validation pending after the IRQ handoff fix; expected UART output is
-  `AXI SRAM UART demo app start`, `VTOR=0x24000000`, then heartbeat logs.
+- Hardware validation passes after the D-cache runtime-state guard. The
+  observed application output is `AXI SRAM UART demo app start`,
+  `VTOR=0x24000000`, then heartbeat logs.
 - During diagnostic bring-up, the bootloader emits
   `RAM image D-cache clean skipped: D-cache disabled`, then
   `RAM image final jump: VTOR=... SP=... PC=...` before UART/DMA deinit when
