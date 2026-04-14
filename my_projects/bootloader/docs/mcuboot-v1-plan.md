@@ -148,8 +148,10 @@ Implemented and tested the SPI NOR driver before bringing in MCUboot:
 
 Current test control:
 
+- `BOOT_FLASH_SELF_TEST=OFF` is the default and does not compile
+  `source/verify/` sources.
 - `BOOT_FLASH_SELF_TEST=ON` compiles and runs boot verify modules.
-- `BOOT_FLASH_SELF_TEST=OFF` does not compile `source/verify/` sources.
+- `BOOT_FLASH_DESTRUCTIVE_TEST=OFF` is the default.
 - `BOOT_FLASH_DESTRUCTIVE_TEST=ON` enables the reserved-sector destructive
   erase/program/read verify.
 
@@ -164,7 +166,7 @@ Notes:
 
 ### Phase 3: MCUboot Minimal Port
 
-Status: implementation complete; hardware validation pending.
+Status: completed.
 
 MCUboot is vendored into the repository as a fixed source dependency for the
 current bring-up. Treat the repository commit as the source pin for now.
@@ -225,8 +227,29 @@ Current implementation status:
 - The recovery/update handler is intentionally YMODEM-only for the 64 KB target;
   the transport is still disabled until the Phase 4 implementation.
 - Debug and Release builds pass with the EC256 key generated from `keys/root.pem`.
-- Hardware validation with erased/empty external slots is still required before
-  closing Phase 3.
+- Hardware validation with erased/empty external slots passes.
+
+Hardware validation result:
+
+```text
+Hello World - BootFlash
+BY25Q32ES JEDEC ID: 68 40 16
+BY25Q32ES erase/program/read verify OK @0x3FF000
+MCUboot boot_go validation start
+MCUboot boot_go failed; entering recovery/update path
+Update: recovery/update handler start
+Update: YMODEM transport disabled
+Update: no update image written
+MCUboot update path did not produce a bootable image
+```
+
+Conclusion:
+
+- BY25Q32ES JEDEC read and reserved-sector erase/program/read verify pass on
+  hardware.
+- Empty external slots cause `boot_go()` to fail cleanly.
+- The bootloader enters the recovery/update handler.
+- YMODEM remains intentionally disabled until Phase 4.
 
 Crypto notes:
 
@@ -243,6 +266,8 @@ Crypto notes:
   before extracting the P-256 public key.
 
 ### Phase 4: YMODEM Download To AXI SRAM
+
+Status: next phase.
 
 Add the bootloader download path before SPI NOR slot/update validation. This
 phase proves the UART transfer and RAM application execution path with the

@@ -21,8 +21,8 @@ endif()
 # Set the project name
 set(CMAKE_PROJECT_NAME STM32H750NetLiteBoot)
 
-option(BOOT_FLASH_SELF_TEST "Run BY25Q32ES self-test at startup" ON)
-option(BOOT_FLASH_DESTRUCTIVE_TEST "Erase/program the BY25Q32ES reserved test sector at startup" ON)
+option(BOOT_FLASH_SELF_TEST "Run BY25Q32ES self-test at startup" OFF)
+option(BOOT_FLASH_DESTRUCTIVE_TEST "Erase/program the BY25Q32ES reserved test sector at startup" OFF)
 option(BOOT_MCUBOOT_BRINGUP "Run MCUboot boot_go validation-only bring-up at startup" ON)
 option(BOOT_UPDATE_YMODEM "Enable bootloader UART YMODEM update transport" OFF)
 
