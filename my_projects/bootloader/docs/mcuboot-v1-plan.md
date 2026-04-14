@@ -192,8 +192,6 @@ Normal boot path should initialize only the minimum needed hardware:
 
 Do not initialize these on normal boot path:
 
-- SDMMC/FATFS.
-- USB CDC.
 - USART recovery.
 - Ethernet.
 - Full application clocks.
@@ -221,6 +219,10 @@ First validation goal:
 Crypto notes:
 
 - Use `imgtool` EC256/P-256 keys and signed images for the Phase 3 port.
+- `keys/root.pem` is a repository bring-up/test key. It may be force-added so
+  developers can reproduce signed-image tests, but product or deployment users
+  must replace it with their own private root key and regenerate
+  `source/boot_keys.c` from that key before shipping.
 - Pin the MCUboot commit before wiring the crypto files, then verify that the
   selected commit contains the TinyCrypt ECDSA P-256 verification path.
 - Keep RSA disabled. Ed25519 is deferred because the code size did not fit the
@@ -241,9 +243,12 @@ Application constraints:
 
 Signing command shape:
 
+Use the repository test key only for bring-up. Replace `keys/root.pem` with the
+deployment root key and rebuild the bootloader public key source before shipping.
+
 ```sh
 python3 external/mcuboot/scripts/imgtool.py sign \
-  --key keys/dev_ec256.pem \
+  --key keys/root.pem \
   --version 1.0.0+0 \
   --header-size 0x200 \
   --slot-size 0x100000 \
@@ -292,17 +297,14 @@ Add update paths only after boot/confirm/revert works.
 Order:
 
 1. Application OTA writes inactive slot with a signed image.
-2. Bootloader T-Flash update service.
-3. UART YMODEM fallback.
-4. Optional USB CDC recovery.
+2. UART YMODEM bootloader recovery writes inactive slot with a signed image.
 
 Rules:
 
 - Payload is always an MCUboot signed image.
 - No raw application binary update path.
-- Update Service can initialize SDMMC/FATFS/USART/USB; normal boot path must not.
-- Failed T-Flash update falls back to YMODEM rather than silently booting as if
-  the update succeeded.
+- Update Service can initialize USART for YMODEM; normal boot path must not
+  initialize USART recovery.
 
 ### Phase 7: Size Optimization Only If Needed
 
@@ -352,8 +354,6 @@ If V2 becomes necessary:
   `MCUBOOT_KEY_IMPORT_BYPASS_ASN` later if measured flash usage requires
   removing the parser.
 - Whether normal boot should use HSI SPI only or add optional PLL2P 60 MHz SPI.
-- Whether T-Flash/FATFS is mandatory in the first recovery milestone or build
-  option only.
 - Application RTOS timing: keep first MCUboot validation bare-metal/HAL, then
   integrate the target RTOS.
 
@@ -368,5 +368,5 @@ If V2 becomes necessary:
 - Confirmed image stays selected.
 - Corrupted signature is rejected.
 - Power loss while writing inactive slot leaves previous confirmed image bootable.
-- Normal boot path does not initialize SDMMC/FATFS/USB/USART recovery.
+- Normal boot path does not initialize USART recovery.
 - RAM-load address and end address are checked before jump.
