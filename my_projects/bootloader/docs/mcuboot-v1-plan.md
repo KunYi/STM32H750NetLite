@@ -436,8 +436,35 @@ Validation:
 
 ### Phase 6: SPI NOR Slot Update, Confirm, And Revert
 
-Move the YMODEM write target from AXI SRAM staging to the MCUboot SPI NOR slot
-layout, then validate the remaining persistent update behavior.
+Split Phase 6 into a persistent SPI NOR bring-up step first, then add
+confirm/revert once the MCUboot upgrade mode is changed away from the current
+overwrite-only configuration.
+
+Phase 6A uses the existing project-specific RAM-load handoff:
+
+- `boot_go()` validates and selects the primary SPI NOR slot during normal boot.
+- The selected SPI NOR image is copied into AXI SRAM at `0x24000000`, then the
+  Phase 5 RAM image validation, relocation, cache maintenance, and final jump
+  path is reused.
+- If `boot_go()` fails, recovery writes the YMODEM signed RAM-load image to the
+  primary SPI NOR slot, validates it with MCUboot, and jumps through the same
+  SPI NOR-to-AXI SRAM loader.
+- `BOOT_MCUBOOT_FORCE_RECOVERY=ON` is a development-only path for exercising the
+  secondary slot: it forces YMODEM recovery before normal handoff, writes the
+  signed image to the secondary slot, marks it pending permanent with MCUboot,
+  then resets so overwrite-only can copy secondary to primary. If no image is
+  received, it falls back to the normal primary-slot handoff after the YMODEM
+  timeout.
+- The signed image must still fit in the AXI SRAM 512 KB RAM-load window, even
+  though each SPI NOR slot is 1 MB.
+
+Phase 6B remains the confirm/revert step:
+
+- The current `MCUBOOT_OVERWRITE_ONLY` mode is not the right final mode for
+  "boot once, confirm, or revert" semantics.
+- Pick and wire a revert-capable MCUboot mode, such as scratch, move, offset, or
+  another mode that matches the SPI NOR layout and boot-time budget.
+- Add any required flash areas, such as scratch, before enabling test upgrades.
 
 Application should expose stable wrappers:
 
@@ -448,21 +475,30 @@ int Image_ConfirmCurrent(void);
 
 Rules:
 
-- YMODEM writes signed images to the inactive SPI NOR slot.
+- YMODEM writes signed images to the selected SPI NOR recovery target.
 - MCUboot remains responsible for signature validation and slot selection.
 - Application confirms only after minimum self-test passes.
 - Do not hand-write MCUboot trailer layout across the codebase.
 - If a minimal trailer writer is unavoidable, pin the MCUboot commit and add
   regression tests for the trailer layout.
 
-Validation:
+Phase 6A validation:
 
-- Use YMODEM recovery to write new signed images into the inactive slot.
+- With empty/corrupt primary, use YMODEM recovery to write the signed image into
+  the primary SPI NOR slot.
 - `boot_go()` selects the signed image from SPI NOR.
-- New image without confirm reverts on next boot.
-- New image with confirm remains selected across reboot.
+- The bootloader copies the selected SPI NOR image into AXI SRAM and jumps to
+  the RAM app.
 - Corrupted signature is rejected.
 - Empty/corrupt both slots enters update/recovery mode.
+- With `BOOT_MCUBOOT_FORCE_RECOVERY=ON`, YMODEM writes the secondary slot,
+  `boot_set_pending(1)` marks it permanent, and reset lets overwrite-only copy
+  secondary to primary.
+
+Phase 6B validation:
+
+- New image without confirm reverts on next boot.
+- New image with confirm remains selected across reboot.
 
 ### Phase 7: Size Optimization Only If Needed
 

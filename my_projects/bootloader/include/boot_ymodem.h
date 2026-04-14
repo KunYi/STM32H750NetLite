@@ -20,12 +20,16 @@ typedef enum {
 
 typedef struct {
     uint32_t ram_address;
+    uint8_t flash_area_id;
     uint32_t file_size;
     uint32_t bytes_received;
     char filename[64];
 } BootYmodem_Image;
 
 BootYmodem_Result BootYmodem_ReceiveToRam(BootYmodem_Image *image);
+BootYmodem_Result BootYmodem_ReceiveToFlash(uint8_t flash_area_id,
+                                            uint32_t max_file_size,
+                                            BootYmodem_Image *image);
 const char *BootYmodem_ResultString(BootYmodem_Result result);
 
 #ifdef __cplusplus

@@ -2,6 +2,7 @@
 
 #include "boot_flash_layout.h"
 #include "bootutil/image.h"
+#include "flash_map_backend/flash_map_backend.h"
 #include "main.h"
 #include "uart_stdio_async.h"
 
@@ -360,6 +361,76 @@ static void ymodem_write_to_ram(uint32_t offset, const uint8_t *data, uint32_t l
     }
 }
 
+static int ymodem_erase_flash_area(const struct flash_area *area)
+{
+    uint32_t size;
+
+    if (area == NULL) {
+        return -1;
+    }
+
+    size = flash_area_get_size(area);
+    if ((size % BOOT_FLASH_SECTOR_SIZE) != 0U) {
+        return -1;
+    }
+
+    return flash_area_erase(area, 0U, size);
+}
+
+static int ymodem_write_to_flash(const struct flash_area *area,
+                                 uint32_t offset,
+                                 const uint8_t *data,
+                                 uint32_t len)
+{
+    if ((area == NULL) || ((data == NULL) && (len > 0U))) {
+        return -1;
+    }
+
+    if (len == 0U) {
+        return 0;
+    }
+
+    return flash_area_write(area, offset, data, len);
+}
+
+static int ymodem_validate_flash_image(const struct flash_area *area, uint32_t file_size)
+{
+    struct image_header header;
+    uint32_t image_end;
+
+    if ((area == NULL) || (file_size < sizeof(header))) {
+        return -1;
+    }
+
+    if (flash_area_read(area, 0U, &header, sizeof(header)) != 0) {
+        return -1;
+    }
+
+    if ((header.ih_magic != IMAGE_MAGIC) ||
+        ((header.ih_flags & IMAGE_F_RAM_LOAD) == 0U)) {
+        return -1;
+    }
+
+    if ((header.ih_hdr_size < sizeof(struct image_header)) ||
+        (header.ih_hdr_size > file_size) ||
+        (header.ih_img_size > (file_size - header.ih_hdr_size))) {
+        return -1;
+    }
+
+    if ((header.ih_load_addr != BOOT_APP_RAM_LOAD_ADDRESS) ||
+        (header.ih_img_size > (UINT32_MAX - header.ih_load_addr))) {
+        return -1;
+    }
+
+    image_end = header.ih_load_addr + header.ih_img_size;
+    if ((image_end < header.ih_load_addr) ||
+        (image_end > (BOOT_APP_RAM_LOAD_ADDRESS + BOOT_APP_RAM_LOAD_SIZE))) {
+        return -1;
+    }
+
+    return 0;
+}
+
 BootYmodem_Result BootYmodem_ReceiveToRam(BootYmodem_Image *image)
 {
     Ymodem_Packet packet;
@@ -524,6 +595,190 @@ BootYmodem_Result BootYmodem_ReceiveToRam(BootYmodem_Image *image)
     image->ram_address = BOOT_APP_RAM_LOAD_ADDRESS;
     image->file_size = file_size;
     image->bytes_received = bytes_received;
+    return BOOT_YMODEM_RESULT_OK;
+}
+
+BootYmodem_Result BootYmodem_ReceiveToFlash(uint8_t flash_area_id,
+                                            uint32_t max_file_size,
+                                            BootYmodem_Image *image)
+{
+    const struct flash_area *area = NULL;
+    Ymodem_Packet packet;
+    uint32_t file_size = 0U;
+    uint32_t bytes_received = 0U;
+    uint8_t expected_block = 1U;
+    uint32_t retries = 0U;
+    int packet_status;
+
+    if ((image == NULL) || (max_file_size == 0U)) {
+        return BOOT_YMODEM_RESULT_PROTOCOL_ERROR;
+    }
+
+    memset(image, 0, sizeof(*image));
+
+    if (flash_area_open(flash_area_id, &area) != 0) {
+        return BOOT_YMODEM_RESULT_PROTOCOL_ERROR;
+    }
+
+    packet_status = ymodem_read_initial_packet(&packet);
+    if (packet_status == (int)YMODEM_CAN) {
+        flash_area_close(area);
+        return BOOT_YMODEM_RESULT_CANCELLED;
+    }
+
+    if ((packet_status != (int)YMODEM_SOH) && (packet_status != (int)YMODEM_STX)) {
+        flash_area_close(area);
+        return BOOT_YMODEM_RESULT_TIMEOUT;
+    }
+
+    if (packet.block_number != 0U) {
+        ymodem_cancel_sender();
+        flash_area_close(area);
+        return BOOT_YMODEM_RESULT_PROTOCOL_ERROR;
+    }
+
+    if (ymodem_parse_header(&packet, image, &file_size) != 0) {
+        ymodem_cancel_sender();
+        flash_area_close(area);
+        return BOOT_YMODEM_RESULT_PROTOCOL_ERROR;
+    }
+
+    if (file_size == 0U) {
+        (void)ymodem_send_byte(YMODEM_ACK);
+        flash_area_close(area);
+        return BOOT_YMODEM_RESULT_NO_IMAGE;
+    }
+
+    if ((file_size > max_file_size) || (file_size > flash_area_get_size(area))) {
+        ymodem_cancel_sender();
+        flash_area_close(area);
+        return BOOT_YMODEM_RESULT_TOO_LARGE;
+    }
+
+    if (ymodem_erase_flash_area(area) != 0) {
+        ymodem_cancel_sender();
+        flash_area_close(area);
+        return BOOT_YMODEM_RESULT_PROTOCOL_ERROR;
+    }
+
+    if ((ymodem_send_byte(YMODEM_ACK) != 0) ||
+        (ymodem_send_byte(YMODEM_CRC) != 0)) {
+        flash_area_close(area);
+        return BOOT_YMODEM_RESULT_TIMEOUT;
+    }
+
+    while (bytes_received < file_size) {
+        uint32_t copy_len;
+
+        packet_status = ymodem_read_packet(&packet, YMODEM_PACKET_TIMEOUT_MS);
+        if (packet_status == (int)YMODEM_CAN) {
+            flash_area_close(area);
+            return BOOT_YMODEM_RESULT_CANCELLED;
+        }
+        if (packet_status == (int)YMODEM_EOT) {
+            break;
+        }
+        if ((packet_status != (int)YMODEM_SOH) && (packet_status != (int)YMODEM_STX)) {
+            retries++;
+            if ((retries >= YMODEM_MAX_RETRIES) ||
+                (ymodem_send_byte(YMODEM_NAK) != 0)) {
+                ymodem_cancel_sender();
+                flash_area_close(area);
+                return BOOT_YMODEM_RESULT_PROTOCOL_ERROR;
+            }
+            continue;
+        }
+
+        retries = 0U;
+        if (packet.block_number == (uint8_t)(expected_block - 1U)) {
+            (void)ymodem_send_byte(YMODEM_ACK);
+            continue;
+        }
+
+        if (packet.block_number != expected_block) {
+            ymodem_cancel_sender();
+            flash_area_close(area);
+            return BOOT_YMODEM_RESULT_PROTOCOL_ERROR;
+        }
+
+        copy_len = file_size - bytes_received;
+        if (copy_len > packet.data_len) {
+            copy_len = packet.data_len;
+        }
+
+        if ((bytes_received > max_file_size) ||
+            (copy_len > (max_file_size - bytes_received))) {
+            ymodem_cancel_sender();
+            flash_area_close(area);
+            return BOOT_YMODEM_RESULT_TOO_LARGE;
+        }
+
+        if (ymodem_write_to_flash(area, bytes_received, packet.data, copy_len) != 0) {
+            ymodem_cancel_sender();
+            flash_area_close(area);
+            return BOOT_YMODEM_RESULT_PROTOCOL_ERROR;
+        }
+        bytes_received += copy_len;
+        expected_block++;
+
+        if (ymodem_send_byte(YMODEM_ACK) != 0) {
+            flash_area_close(area);
+            return BOOT_YMODEM_RESULT_TIMEOUT;
+        }
+    }
+
+    if (bytes_received != file_size) {
+        ymodem_cancel_sender();
+        flash_area_close(area);
+        return BOOT_YMODEM_RESULT_PROTOCOL_ERROR;
+    }
+
+    if (packet_status != (int)YMODEM_EOT) {
+        packet_status = ymodem_read_packet(&packet, YMODEM_PACKET_TIMEOUT_MS);
+        if (packet_status != (int)YMODEM_EOT) {
+            ymodem_cancel_sender();
+            flash_area_close(area);
+            return BOOT_YMODEM_RESULT_PROTOCOL_ERROR;
+        }
+    }
+
+    if (ymodem_send_byte(YMODEM_NAK) != 0) {
+        flash_area_close(area);
+        return BOOT_YMODEM_RESULT_TIMEOUT;
+    }
+
+    packet_status = ymodem_read_packet(&packet, YMODEM_PACKET_TIMEOUT_MS);
+    if (packet_status != (int)YMODEM_EOT) {
+        ymodem_cancel_sender();
+        flash_area_close(area);
+        return BOOT_YMODEM_RESULT_PROTOCOL_ERROR;
+    }
+
+    if ((ymodem_send_byte(YMODEM_ACK) != 0) ||
+        (ymodem_send_byte(YMODEM_CRC) != 0)) {
+        flash_area_close(area);
+        return BOOT_YMODEM_RESULT_TIMEOUT;
+    }
+
+    packet_status = ymodem_read_packet(&packet, YMODEM_PACKET_TIMEOUT_MS);
+    if (((packet_status == (int)YMODEM_SOH) || (packet_status == (int)YMODEM_STX)) &&
+        (packet.block_number == 0U) && (packet.data[0] == 0U)) {
+        (void)ymodem_send_byte(YMODEM_ACK);
+    } else if (packet_status != -1) {
+        ymodem_cancel_sender();
+        flash_area_close(area);
+        return BOOT_YMODEM_RESULT_PROTOCOL_ERROR;
+    }
+
+    if (ymodem_validate_flash_image(area, file_size) != 0) {
+        flash_area_close(area);
+        return BOOT_YMODEM_RESULT_BAD_IMAGE;
+    }
+
+    image->flash_area_id = flash_area_id;
+    image->file_size = file_size;
+    image->bytes_received = bytes_received;
+    flash_area_close(area);
     return BOOT_YMODEM_RESULT_OK;
 }
 

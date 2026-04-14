@@ -4,6 +4,8 @@
 
 #include "boot_ymodem.h"
 
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -18,6 +20,7 @@ typedef enum {
 } BootRamImage_Result;
 
 BootRamImage_Result BootRamImage_ValidateRelocateAndJump(const BootYmodem_Image *image);
+BootRamImage_Result BootRamImage_LoadFlashAreaAndJump(uint8_t flash_area_id);
 const char *BootRamImage_ResultString(BootRamImage_Result result);
 
 #ifdef __cplusplus

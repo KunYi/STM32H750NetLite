@@ -4,6 +4,8 @@
 
 #include "boot_ymodem.h"
 
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -16,6 +18,9 @@ typedef enum {
 } BootUpdate_Result;
 
 BootUpdate_Result BootUpdate_RunRecovery(BootYmodem_Image *image);
+BootUpdate_Result BootUpdate_RunRecoveryToFlash(uint8_t flash_area_id,
+                                                uint32_t max_file_size,
+                                                BootYmodem_Image *image);
 
 #ifdef __cplusplus
 }

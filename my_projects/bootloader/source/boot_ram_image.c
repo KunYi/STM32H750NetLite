@@ -345,6 +345,50 @@ BootRamImage_Result BootRamImage_ValidateRelocateAndJump(const BootYmodem_Image 
     return BOOT_RAM_IMAGE_RESULT_OK;
 }
 
+BootRamImage_Result BootRamImage_LoadFlashAreaAndJump(uint8_t flash_area_id)
+{
+    static uint8_t copy_buf[1024U];
+    const struct flash_area *area = NULL;
+    BootYmodem_Image image = {0};
+    uint32_t offset = 0U;
+    uint32_t copy_size = BOOT_APP_RAM_LOAD_SIZE;
+
+    if (flash_area_open(flash_area_id, &area) != 0) {
+        return BOOT_RAM_IMAGE_RESULT_BAD_ARGUMENT;
+    }
+
+    if (flash_area_get_size(area) < copy_size) {
+        copy_size = flash_area_get_size(area);
+    }
+
+    while (offset < copy_size) {
+        uint32_t chunk = copy_size - offset;
+
+        if (chunk > sizeof(copy_buf)) {
+            chunk = sizeof(copy_buf);
+        }
+
+        if (flash_area_read(area, offset, copy_buf, chunk) != 0) {
+            flash_area_close(area);
+            return BOOT_RAM_IMAGE_RESULT_BAD_RANGE;
+        }
+
+        memcpy((void *)(uintptr_t)(BOOT_APP_RAM_LOAD_ADDRESS + offset),
+               copy_buf,
+               chunk);
+        offset += chunk;
+    }
+
+    flash_area_close(area);
+
+    image.ram_address = BOOT_APP_RAM_LOAD_ADDRESS;
+    image.flash_area_id = flash_area_id;
+    image.file_size = copy_size;
+    image.bytes_received = copy_size;
+
+    return BootRamImage_ValidateRelocateAndJump(&image);
+}
+
 const char *BootRamImage_ResultString(BootRamImage_Result result)
 {
     switch (result) {
