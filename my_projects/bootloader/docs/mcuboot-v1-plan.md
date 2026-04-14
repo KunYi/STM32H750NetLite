@@ -164,13 +164,14 @@ Notes:
 
 ### Phase 3: MCUboot Minimal Port
 
-Status: next.
+Status: implementation complete; hardware validation pending.
 
-Add MCUboot as a fixed source dependency, preferably pinned to a known commit.
+MCUboot is vendored into the repository as a fixed source dependency for the
+current bring-up. Treat the repository commit as the source pin for now.
 
-First bring-up tasks:
+Implemented bring-up tasks:
 
-Implement MCUboot flash area glue:
+MCUboot flash area glue:
 
 - `flash_area_open`
 - `flash_area_close`
@@ -212,9 +213,20 @@ Bring in:
 
 First validation goal:
 
-- With empty slots, `boot_go()` should fail cleanly and route to recovery/update
-  handling.
+- With empty slots, `boot_go()` should fail cleanly and route to the
+  recovery/update handler.
 - No application jump yet.
+
+Current implementation status:
+
+- `boot_go()` validation-only path is wired through `BootMcuboot_RunValidationOnly()`.
+- Success logs the selected-image case but does not jump yet.
+- Failure routes through `BootUpdate_RunRecovery()`.
+- The recovery/update handler is intentionally YMODEM-only for the 64 KB target;
+  the transport is still disabled until the Phase 4 implementation.
+- Debug and Release builds pass with the EC256 key generated from `keys/root.pem`.
+- Hardware validation with erased/empty external slots is still required before
+  closing Phase 3.
 
 Crypto notes:
 
@@ -230,7 +242,34 @@ Crypto notes:
 - ASN.1 is only used to parse and validate the public key container format
   before extracting the P-256 public key.
 
-### Phase 4: Signed RAM-load Application
+### Phase 4: YMODEM Download To AXI SRAM
+
+Add the bootloader download path before SPI NOR slot/update validation. This
+phase proves the UART transfer and RAM application execution path with the
+fewest moving parts.
+
+Rules:
+
+- UART YMODEM is the only bootloader recovery transport for the 64 KB target.
+- Payload is always an MCUboot signed image.
+- No raw application binary update path.
+- YMODEM writes the received signed image into an AXI SRAM staging area for this
+  phase.
+- The AXI SRAM path is a bring-up path for download and jump validation. It must
+  not become the final persistent update path.
+- Update Service can initialize USART for YMODEM; normal boot path must not
+  initialize USART recovery.
+- Do not write SPI NOR slots or MCUboot trailer state in this phase.
+
+Initial validation:
+
+- With empty slots, `boot_go()` fails cleanly and enters `BootUpdate_RunRecovery()`.
+- YMODEM receives a signed image and writes it to AXI SRAM.
+- Failed or canceled YMODEM transfer leaves no accepted RAM image.
+- Bootloader checks the downloaded image header and RAM-load address range
+  before any jump attempt.
+
+### Phase 5: Signed RAM-load Application From AXI SRAM
 
 Create the smallest RAM-load application first.
 
@@ -262,12 +301,18 @@ python3 external/mcuboot/scripts/imgtool.py sign \
 
 Validation:
 
-- Manually write a signed image into Slot A.
-- `boot_go()` selects it.
+- Use Phase 4 YMODEM recovery to write a signed image into AXI SRAM.
+- Bootloader validates the signed image before jump. If full MCUboot validation
+  cannot be reused directly from RAM, keep this path debug-only until the SPI
+  NOR validation path in Phase 6 is active.
 - Bootloader checks RAM-load address and end address.
 - Bootloader jumps to AXI SRAM application.
+- Application proves the reset handler, vector table, and minimum runtime path.
 
-### Phase 5: Confirm And Revert
+### Phase 6: SPI NOR Slot Update, Confirm, And Revert
+
+Move the YMODEM write target from AXI SRAM staging to the MCUboot SPI NOR slot
+layout, then validate the remaining persistent update behavior.
 
 Application should expose stable wrappers:
 
@@ -278,6 +323,8 @@ int Image_ConfirmCurrent(void);
 
 Rules:
 
+- YMODEM writes signed images to the inactive SPI NOR slot.
+- MCUboot remains responsible for signature validation and slot selection.
 - Application confirms only after minimum self-test passes.
 - Do not hand-write MCUboot trailer layout across the codebase.
 - If a minimal trailer writer is unavoidable, pin the MCUboot commit and add
@@ -285,26 +332,12 @@ Rules:
 
 Validation:
 
+- Use YMODEM recovery to write new signed images into the inactive slot.
+- `boot_go()` selects the signed image from SPI NOR.
 - New image without confirm reverts on next boot.
 - New image with confirm remains selected across reboot.
 - Corrupted signature is rejected.
 - Empty/corrupt both slots enters update/recovery mode.
-
-### Phase 6: Update Service
-
-Add update paths only after boot/confirm/revert works.
-
-Order:
-
-1. Application OTA writes inactive slot with a signed image.
-2. UART YMODEM bootloader recovery writes inactive slot with a signed image.
-
-Rules:
-
-- Payload is always an MCUboot signed image.
-- No raw application binary update path.
-- Update Service can initialize USART for YMODEM; normal boot path must not
-  initialize USART recovery.
 
 ### Phase 7: Size Optimization Only If Needed
 
