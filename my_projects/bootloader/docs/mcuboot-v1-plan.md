@@ -225,7 +225,7 @@ Current implementation status:
 - Success logs the selected-image case but does not jump yet.
 - Failure routes through `BootUpdate_RunRecovery()`.
 - The recovery/update handler is intentionally YMODEM-only for the 64 KB target;
-  the transport is still disabled until the Phase 4 implementation.
+  the transport was disabled during Phase 3 and is enabled by the Phase 4 work.
 - Debug and Release builds pass with the EC256 key generated from `keys/root.pem`.
 - Hardware validation with erased/empty external slots passes.
 
@@ -249,7 +249,7 @@ Conclusion:
   hardware.
 - Empty external slots cause `boot_go()` to fail cleanly.
 - The bootloader enters the recovery/update handler.
-- YMODEM remains intentionally disabled until Phase 4.
+- YMODEM was intentionally disabled during Phase 3.
 
 Crypto notes:
 
@@ -267,7 +267,7 @@ Crypto notes:
 
 ### Phase 4: YMODEM Download To AXI SRAM
 
-Status: next phase.
+Status: in progress.
 
 Add the bootloader download path before SPI NOR slot/update validation. This
 phase proves the UART transfer and RAM application execution path with the
@@ -285,6 +285,25 @@ Rules:
 - Update Service can initialize USART for YMODEM; normal boot path must not
   initialize USART recovery.
 - Do not write SPI NOR slots or MCUboot trailer state in this phase.
+
+Current implementation status:
+
+- UART YMODEM is built into the recovery path and is no longer a build option.
+- Receiver sends CRC mode requests with `C`; the initial handshake window is
+  `YMODEM_INITIAL_TIMEOUT_MS` and the retry cadence is
+  `YMODEM_INITIAL_C_INTERVAL_MS` (currently 30 seconds and 50 ms).
+- Receiver supports both `SOH` 128-byte and `STX` 1024-byte YMODEM data blocks.
+- Header packet is parsed for file size and the received signed image is staged
+  at `0x24000000`.
+- Transfer is rejected if the file size exceeds the AXI SRAM staging range.
+- After transfer, the bootloader checks the MCUboot image header magic, RAM-load
+  flag, header size, image size, and load-address range before accepting the
+  staged image.
+- SPI NOR slots and MCUboot trailer state are not written in this phase.
+- `App/` contains a copied CubeMX-based AXI SRAM demo application.
+- The demo app links its vector table and text at `0x24000000`, uses
+  `uart_stdio_async`, prints a UART heartbeat, and emits a signed
+  `STM32H750NetLiteApp.signed.bin` image for YMODEM transfer.
 
 Initial validation:
 

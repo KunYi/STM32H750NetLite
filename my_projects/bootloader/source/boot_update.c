@@ -1,13 +1,10 @@
 #include "boot_update.h"
 
+#include "boot_ymodem.h"
 #include "uart_stdio_async.h"
 
 #include <stdint.h>
 #include <string.h>
-
-#ifndef BOOT_UPDATE_YMODEM
-#define BOOT_UPDATE_YMODEM 0
-#endif
 
 static void BootUpdate_LogString(const char *text)
 {
@@ -18,12 +15,32 @@ static void BootUpdate_LogString(const char *text)
 
 static BootUpdate_Result BootUpdate_TryYModem(void)
 {
-#if BOOT_UPDATE_YMODEM
-#error "BOOT_UPDATE_YMODEM is enabled, but the YMODEM update transport is not implemented yet."
-#else
-    BootUpdate_LogString("Update: YMODEM transport disabled\r\n");
-    return BOOT_UPDATE_RESULT_TRANSPORT_UNAVAILABLE;
-#endif
+    BootYmodem_Image image;
+    BootYmodem_Result ymodem_result;
+
+    BootUpdate_LogString("Update: YMODEM receive start\r\n");
+    (void)uart_stdio_async_flush(1000U);
+    uart_stdio_async_set_log_enabled(0);
+
+    ymodem_result = BootYmodem_ReceiveToRam(&image);
+
+    uart_stdio_async_set_log_enabled(1);
+    if (ymodem_result == BOOT_YMODEM_RESULT_OK) {
+        BootUpdate_LogString("Update: YMODEM image received into AXI SRAM: ");
+        BootUpdate_LogString(image.filename);
+        BootUpdate_LogString("\r\n");
+        return BOOT_UPDATE_RESULT_IMAGE_WRITTEN;
+    }
+
+    BootUpdate_LogString("Update: YMODEM receive ");
+    BootUpdate_LogString(BootYmodem_ResultString(ymodem_result));
+    BootUpdate_LogString("\r\n");
+    if ((ymodem_result == BOOT_YMODEM_RESULT_NO_IMAGE) ||
+        (ymodem_result == BOOT_YMODEM_RESULT_TIMEOUT)) {
+        return BOOT_UPDATE_RESULT_NO_IMAGE;
+    }
+
+    return BOOT_UPDATE_RESULT_FAILED;
 }
 
 static void BootUpdate_MarkTransportUnavailable(BootUpdate_Result *result)
