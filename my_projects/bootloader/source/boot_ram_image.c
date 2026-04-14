@@ -1,10 +1,13 @@
 #include "boot_ram_image.h"
 
 #include "boot_flash_layout.h"
+#include "boot_ram_image_filter.h"
 #include "bootutil/fault_injection_hardening.h"
+#include "bootutil/bootutil.h"
 #include "bootutil/image.h"
 #include "flash_map_backend/flash_map_backend.h"
 #include "main.h"
+#include "sysflash/sysflash.h"
 #include "uart_stdio_async.h"
 
 #include <stdint.h>
@@ -28,7 +31,11 @@
 #define BOOT_D3_RAM_END     0x38010000UL
 #define BOOT_DCACHE_LINE_SIZE 32UL
 
-#if BOOT_RAM_IMAGE_DIAGNOSTIC_LOG
+#ifndef BOOT_RAM_IMAGE_HANDOFF_LOG
+#define BOOT_RAM_IMAGE_HANDOFF_LOG 1
+#endif
+
+#if BOOT_RAM_IMAGE_DIAGNOSTIC_LOG || BOOT_RAM_IMAGE_HANDOFF_LOG
 static void boot_ram_image_log(const char *text)
 {
     if (text != NULL) {
@@ -64,11 +71,13 @@ static void boot_ram_image_log_flush(void)
 {
     (void)uart_stdio_async_flush(1000U);
 }
-#else
-#define boot_ram_image_log(text)                 ((void)0)
-#define boot_ram_image_log_hex32(value)          ((void)0)
+#endif
+
+#if !BOOT_RAM_IMAGE_DIAGNOSTIC_LOG && !BOOT_RAM_IMAGE_HANDOFF_LOG
+#define boot_ram_image_log(text)                  ((void)0)
+#define boot_ram_image_log_hex32(value)           ((void)0)
 #define boot_ram_image_log_result(prefix, result) ((void)0)
-#define boot_ram_image_log_flush()               ((void)0)
+#define boot_ram_image_log_flush()                ((void)0)
 #endif
 
 static int boot_ram_image_is_stack_pointer(uint32_t address)
@@ -111,6 +120,7 @@ static BootRamImage_Result boot_ram_image_check_layout(const BootYmodem_Image *i
 
     if ((header->ih_magic != IMAGE_MAGIC) ||
         ((header->ih_flags & IMAGE_F_RAM_LOAD) == 0U) ||
+        IS_ENCRYPTED(header) ||
         (header->ih_hdr_size < sizeof(struct image_header)) ||
         (header->ih_hdr_size > image->file_size) ||
         (header->ih_img_size > (image->file_size - header->ih_hdr_size))) {
@@ -136,6 +146,29 @@ static BootRamImage_Result boot_ram_image_check_layout(const BootYmodem_Image *i
     }
 
     return BOOT_RAM_IMAGE_RESULT_OK;
+}
+
+static void boot_ram_image_log_layout_context(const BootYmodem_Image *image,
+                                              const struct image_header *header)
+{
+    boot_ram_image_log("RAM image layout context: ram=");
+    boot_ram_image_log_hex32(image->ram_address);
+    boot_ram_image_log(" file=");
+    boot_ram_image_log_hex32(image->file_size);
+    boot_ram_image_log(" magic=");
+    boot_ram_image_log_hex32(header->ih_magic);
+    boot_ram_image_log(" flags=");
+    boot_ram_image_log_hex32(header->ih_flags);
+    boot_ram_image_log(" hdr=");
+    boot_ram_image_log_hex32(header->ih_hdr_size);
+    boot_ram_image_log(" img=");
+    boot_ram_image_log_hex32(header->ih_img_size);
+    boot_ram_image_log(" prot=");
+    boot_ram_image_log_hex32(header->ih_protect_tlv_size);
+    boot_ram_image_log(" load=");
+    boot_ram_image_log_hex32(header->ih_load_addr);
+    boot_ram_image_log("\r\n");
+    boot_ram_image_log_flush();
 }
 
 static BootRamImage_Result boot_ram_image_validate_signature(const BootYmodem_Image *image,
@@ -197,6 +230,57 @@ static void boot_ram_image_relocate_payload(const struct image_header *header)
         (const uint8_t *)(uintptr_t)(BOOT_APP_RAM_LOAD_ADDRESS + header->ih_hdr_size);
 
     memmove(dst, src, header->ih_img_size);
+}
+
+static BootRamImage_Result boot_ram_image_read_flash_signed_size(const struct flash_area *area,
+                                                                 const struct image_header *header,
+                                                                 uint32_t requested_size,
+                                                                 uint32_t *signed_size)
+{
+    struct image_tlv_info tlv_info;
+    uint32_t tlv_offset;
+    uint32_t total_size;
+    uint32_t area_size;
+
+    if ((area == NULL) || (header == NULL) || (signed_size == NULL)) {
+        return BOOT_RAM_IMAGE_RESULT_BAD_ARGUMENT;
+    }
+
+    if ((header->ih_magic != IMAGE_MAGIC) ||
+        ((header->ih_flags & IMAGE_F_RAM_LOAD) == 0U) ||
+        IS_ENCRYPTED(header) ||
+        (header->ih_hdr_size < sizeof(struct image_header)) ||
+        (header->ih_img_size > (UINT32_MAX - header->ih_hdr_size)) ||
+        (header->ih_protect_tlv_size >
+         (UINT32_MAX - header->ih_hdr_size - header->ih_img_size))) {
+        return BOOT_RAM_IMAGE_RESULT_BAD_HEADER;
+    }
+
+    tlv_offset = header->ih_hdr_size + header->ih_img_size + header->ih_protect_tlv_size;
+    area_size = flash_area_get_size(area);
+    if ((tlv_offset > area_size) ||
+        (sizeof(tlv_info) > (area_size - tlv_offset)) ||
+        (flash_area_read(area, tlv_offset, &tlv_info, sizeof(tlv_info)) != 0) ||
+        (tlv_info.it_magic != IMAGE_TLV_INFO_MAGIC)) {
+        return BOOT_RAM_IMAGE_RESULT_BAD_SIGNED_SIZE;
+    }
+
+    if ((tlv_info.it_tlv_tot < sizeof(tlv_info)) ||
+        (tlv_info.it_tlv_tot > (UINT32_MAX - tlv_offset))) {
+        return BOOT_RAM_IMAGE_RESULT_BAD_SIGNED_SIZE;
+    }
+
+    total_size = tlv_offset + tlv_info.it_tlv_tot;
+    if ((total_size > BOOT_APP_RAM_LOAD_SIZE) || (total_size > area_size)) {
+        return BOOT_RAM_IMAGE_RESULT_BAD_SIGNED_SIZE;
+    }
+
+    if ((requested_size != 0U) && (total_size > requested_size)) {
+        return BOOT_RAM_IMAGE_RESULT_BAD_SIGNED_SIZE;
+    }
+
+    *signed_size = total_size;
+    return BOOT_RAM_IMAGE_RESULT_OK;
 }
 
 static void boot_ram_image_clean_payload_dcache(uint32_t image_base, uint32_t image_size)
@@ -303,6 +387,7 @@ BootRamImage_Result BootRamImage_ValidateRelocateAndJump(const BootYmodem_Image 
     result = boot_ram_image_check_layout(image, header);
     if (result != BOOT_RAM_IMAGE_RESULT_OK) {
         boot_ram_image_log_result("RAM image layout failed: ", result);
+        boot_ram_image_log_layout_context(image, header);
         return result;
     }
     boot_ram_image_log("RAM image layout OK\r\n");
@@ -347,19 +432,51 @@ BootRamImage_Result BootRamImage_ValidateRelocateAndJump(const BootYmodem_Image 
 
 BootRamImage_Result BootRamImage_LoadFlashAreaAndJump(uint8_t flash_area_id)
 {
+    return BootRamImage_LoadFlashAreaAndJumpSized(flash_area_id, 0U);
+}
+
+BootRamImage_Result BootRamImage_LoadFlashAreaAndJumpSized(uint8_t flash_area_id,
+                                                           uint32_t file_size)
+{
     static uint8_t copy_buf[1024U];
     const struct flash_area *area = NULL;
     BootYmodem_Image image = {0};
+    struct image_header header;
+    BootRamImage_FilterContext filter_context = {0};
     uint32_t offset = 0U;
-    uint32_t copy_size = BOOT_APP_RAM_LOAD_SIZE;
+    uint32_t copy_size = 0U;
+    BootRamImage_Result result;
 
     if (flash_area_open(flash_area_id, &area) != 0) {
         return BOOT_RAM_IMAGE_RESULT_BAD_ARGUMENT;
     }
 
-    if (flash_area_get_size(area) < copy_size) {
-        copy_size = flash_area_get_size(area);
+    if (flash_area_read(area, 0U, &header, sizeof(header)) != 0) {
+        flash_area_close(area);
+        return BOOT_RAM_IMAGE_RESULT_BAD_RANGE;
     }
+
+    result = boot_ram_image_read_flash_signed_size(area, &header, file_size, &copy_size);
+    if (result != BOOT_RAM_IMAGE_RESULT_OK) {
+        flash_area_close(area);
+        return result;
+    }
+
+    boot_ram_image_log("RAM image flash copy: requested=");
+    boot_ram_image_log_hex32(file_size);
+    boot_ram_image_log(" computed=");
+    boot_ram_image_log_hex32(copy_size);
+    boot_ram_image_log(" hdr=");
+    boot_ram_image_log_hex32(header.ih_hdr_size);
+    boot_ram_image_log(" img=");
+    boot_ram_image_log_hex32(header.ih_img_size);
+    boot_ram_image_log(" flags=");
+    boot_ram_image_log_hex32(header.ih_flags);
+    boot_ram_image_log("\r\n");
+    boot_ram_image_log_flush();
+
+    filter_context.flash_area_id = flash_area_id;
+    filter_context.header = &header;
 
     while (offset < copy_size) {
         uint32_t chunk = copy_size - offset;
@@ -371,6 +488,12 @@ BootRamImage_Result BootRamImage_LoadFlashAreaAndJump(uint8_t flash_area_id)
         if (flash_area_read(area, offset, copy_buf, chunk) != 0) {
             flash_area_close(area);
             return BOOT_RAM_IMAGE_RESULT_BAD_RANGE;
+        }
+
+        filter_context.flash_offset = offset;
+        if (BootRamImage_FilterBlock(&filter_context, copy_buf, chunk) != 0) {
+            flash_area_close(area);
+            return BOOT_RAM_IMAGE_RESULT_FILTER_FAILED;
         }
 
         memcpy((void *)(uintptr_t)(BOOT_APP_RAM_LOAD_ADDRESS + offset),
@@ -389,6 +512,40 @@ BootRamImage_Result BootRamImage_LoadFlashAreaAndJump(uint8_t flash_area_id)
     return BootRamImage_ValidateRelocateAndJump(&image);
 }
 
+BootRamImage_Result BootRamImage_LoadBootResponseAndJump(const struct boot_rsp *response)
+{
+    const struct flash_area *primary = NULL;
+    const struct flash_area *secondary = NULL;
+    uint8_t flash_area_id;
+
+    if (response == NULL) {
+        return BOOT_RAM_IMAGE_RESULT_BAD_ARGUMENT;
+    }
+
+    if (flash_area_open(PRIMARY_ID, &primary) != 0) {
+        return BOOT_RAM_IMAGE_RESULT_BAD_ARGUMENT;
+    }
+
+    if (flash_area_open(SECONDARY_ID, &secondary) != 0) {
+        flash_area_close(primary);
+        return BOOT_RAM_IMAGE_RESULT_BAD_ARGUMENT;
+    }
+
+    if (response->br_image_off == flash_area_get_off(primary)) {
+        flash_area_id = PRIMARY_ID;
+    } else if (response->br_image_off == flash_area_get_off(secondary)) {
+        flash_area_id = SECONDARY_ID;
+    } else {
+        flash_area_close(secondary);
+        flash_area_close(primary);
+        return BOOT_RAM_IMAGE_RESULT_BAD_ARGUMENT;
+    }
+
+    flash_area_close(secondary);
+    flash_area_close(primary);
+    return BootRamImage_LoadFlashAreaAndJump(flash_area_id);
+}
+
 const char *BootRamImage_ResultString(BootRamImage_Result result)
 {
     switch (result) {
@@ -404,6 +561,10 @@ const char *BootRamImage_ResultString(BootRamImage_Result result)
         return "bad signature";
     case BOOT_RAM_IMAGE_RESULT_BAD_VECTOR:
         return "bad vector";
+    case BOOT_RAM_IMAGE_RESULT_BAD_SIGNED_SIZE:
+        return "bad signed image size";
+    case BOOT_RAM_IMAGE_RESULT_FILTER_FAILED:
+        return "stream filter failed";
     default:
         return "unknown";
     }

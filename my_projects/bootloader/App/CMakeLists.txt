@@ -31,6 +31,7 @@ set(APP_DEFINES
 )
 
 set(APP_INCLUDE_DIRS
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/cubemx/Core/Inc
     ${CMAKE_CURRENT_SOURCE_DIR}/cubemx/Drivers/STM32H7xx_HAL_Driver/Inc
@@ -41,6 +42,7 @@ set(APP_INCLUDE_DIRS
 
 set(APP_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/source/startup_stm32h750xx.s
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/boot_exchange_app.c
     ${CMAKE_CURRENT_SOURCE_DIR}/source/uart_stdio_async.c
     ${CMAKE_CURRENT_SOURCE_DIR}/cubemx/Core/Src/main.c
     ${CMAKE_CURRENT_SOURCE_DIR}/cubemx/Core/Src/stm32h7xx_it.c

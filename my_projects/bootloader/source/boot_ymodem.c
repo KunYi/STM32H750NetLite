@@ -324,7 +324,8 @@ static int ymodem_validate_ram_image(uint32_t file_size)
     }
 
     if ((header->ih_magic != IMAGE_MAGIC) ||
-        ((header->ih_flags & IMAGE_F_RAM_LOAD) == 0U)) {
+        ((header->ih_flags & IMAGE_F_RAM_LOAD) == 0U) ||
+        IS_ENCRYPTED(header)) {
         return -1;
     }
 
@@ -407,7 +408,8 @@ static int ymodem_validate_flash_image(const struct flash_area *area, uint32_t f
     }
 
     if ((header.ih_magic != IMAGE_MAGIC) ||
-        ((header.ih_flags & IMAGE_F_RAM_LOAD) == 0U)) {
+        ((header.ih_flags & IMAGE_F_RAM_LOAD) == 0U) ||
+        IS_ENCRYPTED(&header)) {
         return -1;
     }
 

@@ -36,8 +36,18 @@ python3 ../mcuboot/scripts/imgtool.py sign \
   build/Release/STM32H750NetLiteApp.signed.bin
 ```
 
-Do not add `--pad` for the Phase 4 AXI SRAM transfer. Padding to a 1 MB SPI NOR
-slot would exceed the 512 KB AXI SRAM staging area.
+Do not add `--pad` for the AXI SRAM transfer. Padding to a 1 MB SPI NOR slot
+would exceed the 512 KB AXI SRAM staging area. The SPI NOR slots are 1 MB
+storage slots, but the executable RAM-load image must fit in the 512 KB AXI
+SRAM runtime window; the current `--slot-size 0x80000` setting keeps imgtool's
+size check aligned with that runtime limit. Phase 6B still keeps the image
+unencrypted; the bootloader has a no-op stream filter hook reserved for future
+decrypt/decompress work and rejects unexpected MCUboot encrypted-image flags.
+
+The app includes backup-SRAM `BootExchange` wrappers for Phase 6B confirm/test
+requests. Automatic confirm is disabled by default; define
+`APP_BOOT_AUTO_CONFIRM_AFTER_MS` to queue a confirm request after a demo
+self-test delay.
 
 VS Code / OpenOCD:
 

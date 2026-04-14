@@ -20,6 +20,7 @@ set(BOOTUTIL_Src
     ${BOOTUTIL_DIR}/src/image_ed25519.c
     ${BOOTUTIL_DIR}/src/image_validate.c
     ${BOOTUTIL_DIR}/src/loader.c
+    ${BOOTUTIL_DIR}/src/ram_load.c
     ${BOOTUTIL_DIR}/src/swap_misc.c
     ${BOOTUTIL_DIR}/src/swap_scratch.c
     ${BOOTUTIL_DIR}/src/tlv.c

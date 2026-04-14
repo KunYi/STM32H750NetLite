@@ -437,8 +437,9 @@ Validation:
 ### Phase 6: SPI NOR Slot Update, Confirm, And Revert
 
 Split Phase 6 into a persistent SPI NOR bring-up step first, then add
-confirm/revert once the MCUboot upgrade mode is changed away from the current
-overwrite-only configuration.
+confirm/revert by switching the MCUboot upgrade mode from the Phase 6A
+overwrite-only bring-up configuration to the Phase 6B RAM-load A/B
+configuration.
 
 Phase 6A uses the existing project-specific RAM-load handoff:
 
@@ -451,33 +452,66 @@ Phase 6A uses the existing project-specific RAM-load handoff:
   SPI NOR-to-AXI SRAM loader.
 - `BOOT_MCUBOOT_FORCE_RECOVERY=ON` is a development-only path for exercising the
   secondary slot: it forces YMODEM recovery before normal handoff, writes the
-  signed image to the secondary slot, marks it pending permanent with MCUboot,
-  then resets so overwrite-only can copy secondary to primary. If no image is
-  received, it falls back to the normal primary-slot handoff after the YMODEM
+  signed image to the secondary slot, marks it pending, then resets so the
+  selected MCUboot mode can exercise the secondary-slot update path. If no image
+  is received, it falls back to the normal primary-slot handoff after the YMODEM
   timeout.
 - The signed image must still fit in the AXI SRAM 512 KB RAM-load window, even
   though each SPI NOR slot is 1 MB.
 
-Phase 6B remains the confirm/revert step:
+Phase 6B uses MCUboot RAM-load A/B selection:
 
-- The current `MCUBOOT_OVERWRITE_ONLY` mode is not the right final mode for
-  "boot once, confirm, or revert" semantics.
-- Pick and wire a revert-capable MCUboot mode, such as scratch, move, offset, or
-  another mode that matches the SPI NOR layout and boot-time budget.
-- Add any required flash areas, such as scratch, before enabling test upgrades.
+- `MCUBOOT_OVERWRITE_ONLY` is replaced by `MCUBOOT_RAM_LOAD` with
+  `MCUBOOT_RAM_LOAD_REVERT`.
+- `IMAGE_EXECUTABLE_RAM_START` and `IMAGE_EXECUTABLE_RAM_SIZE` are tied to the
+  project AXI SRAM app window: `0x24000000..0x2407FFFF`.
+- `boot_go()` validates and selects the active SPI NOR slot. The bootloader then
+  maps the `boot_rsp` image offset back to primary or secondary and runs the
+  project-specific SPI NOR-to-AXI SRAM loader.
+- The selected image is copied through a stream/block filter hook before the
+  Phase 5 RAM image validation, relocation, D-cache guard, and final jump path.
+- The default filter is no-op. Future decrypt/decompress transforms must attach
+  at this hook or its wrapper instead of being scattered through the flash read
+  loop.
+- Phase 6B intentionally does not implement encrypted images. If an image header
+  sets `IMAGE_F_ENCRYPTED_AES128` or `IMAGE_F_ENCRYPTED_AES256`, validation
+  fails closed and the bootloader must not jump.
+- No scratch area is required for the selected Phase 6B RAM-load A/B policy.
+- A fully erased SPI NOR starts by recovering only the primary slot. That first
+  download establishes a confirmed primary baseline; it does not populate the
+  secondary slot. Secondary/test-slot updates are downloaded separately after a
+  primary baseline exists.
+- For that blank-flash primary recovery baseline, the bootloader explicitly
+  initializes the primary MCUboot trailer as confirmed by writing `magic`,
+  `copy_done`, and `image_ok`. This is required by `MCUBOOT_RAM_LOAD_REVERT`:
+  after reset, `boot_go()` only keeps considering a selected slot if its trailer
+  has `magic == GOOD`; a slot with `copy_done == SET` and `image_ok != SET` is
+  treated as an unconfirmed boot attempt and is reverted/erased.
+- The SPI NOR-to-AXI SRAM loader copies the signed image's actual header,
+  payload, and TLV length, not the full 512 KB AXI SRAM capacity. The 512 KB
+  value remains the runtime upper bound.
+- Each SPI NOR slot is still 1 MB storage capacity. Current app signing keeps
+  `--slot-size 0x80000` as a conservative imgtool-side runtime-size check
+  because the executable image must fit in the 512 KB AXI SRAM window. The
+  bootloader enforces the same runtime bound independently when loading.
 
-Application should expose stable wrappers:
+Application/bootloader exchange exposes stable wrappers:
 
 ```c
-int Image_RequestTestUpgrade(void);
-int Image_ConfirmCurrent(void);
+void BootExchange_RequestTestUpgrade(void);
+void BootExchange_RequestConfirmCurrent(void);
 ```
 
 Rules:
 
 - YMODEM writes signed images to the selected SPI NOR recovery target.
 - MCUboot remains responsible for signature validation and slot selection.
-- Application confirms only after minimum self-test passes.
+- Application does not write MCUboot trailer state directly. It writes a
+  `BootExchange` request in backup SRAM; the bootloader consumes it before
+  `boot_go()` and calls MCUboot public APIs.
+- Application confirms only after minimum self-test passes. The demo wrapper is
+  compiled in, but automatic confirm is disabled unless
+  `APP_BOOT_AUTO_CONFIRM_AFTER_MS` is set.
 - Do not hand-write MCUboot trailer layout across the codebase.
 - If a minimal trailer writer is unavoidable, pin the MCUboot commit and add
   regression tests for the trailer layout.
@@ -492,13 +526,19 @@ Phase 6A validation:
 - Corrupted signature is rejected.
 - Empty/corrupt both slots enters update/recovery mode.
 - With `BOOT_MCUBOOT_FORCE_RECOVERY=ON`, YMODEM writes the secondary slot,
-  `boot_set_pending(1)` marks it permanent, and reset lets overwrite-only copy
-  secondary to primary.
+  `boot_set_pending(0)` marks it as test, and reset lets RAM-load A/B selection
+  boot the secondary once.
 
 Phase 6B validation:
 
+- Empty SPI NOR primary recovery writes a signed RAM-load image to primary,
+  marks the recovered primary confirmed, jumps through the SPI NOR-to-AXI SRAM
+  loader, and remains selected by `boot_go()` after reset.
 - New image without confirm reverts on next boot.
 - New image with confirm remains selected across reboot.
+- Unexpected encrypted image flags fail closed.
+- The no-op stream filter path produces the same boot behavior as the Phase 6A
+  direct SPI NOR-to-AXI SRAM copy.
 
 ### Phase 7: Size Optimization Only If Needed
 

@@ -2,15 +2,12 @@
 
 #include "boot_flash_layout.h"
 #include "boot_ymodem.h"
-#include "bootutil/fault_injection_hardening.h"
 #include "bootutil/image.h"
 #include "flash_map_backend/flash_map_backend.h"
 #include "uart_stdio_async.h"
 
 #include <stdint.h>
 #include <string.h>
-
-#define BOOT_UPDATE_VALIDATE_TMP_BUF_SZ 256U
 
 static void BootUpdate_LogString(const char *text)
 {
@@ -52,14 +49,12 @@ static BootUpdate_Result BootUpdate_TryYModem(BootYmodem_Image *image)
     return BOOT_UPDATE_RESULT_FAILED;
 }
 
-static int BootUpdate_ValidateFlashRamLoadImage(uint8_t flash_area_id)
+static int BootUpdate_ValidateFlashRamLoadLayout(uint8_t flash_area_id)
 {
-    static uint8_t validate_tmp_buf[BOOT_UPDATE_VALIDATE_TMP_BUF_SZ];
     const struct flash_area *area = NULL;
     struct image_header header;
     uint32_t image_end;
     int rc;
-    FIH_DECLARE(validate_result, FIH_FAILURE);
 
     rc = flash_area_open(flash_area_id, &area);
     if (rc != 0) {
@@ -74,6 +69,7 @@ static int BootUpdate_ValidateFlashRamLoadImage(uint8_t flash_area_id)
 
     if ((header.ih_magic != IMAGE_MAGIC) ||
         ((header.ih_flags & IMAGE_F_RAM_LOAD) == 0U) ||
+        IS_ENCRYPTED(&header) ||
         (header.ih_hdr_size < sizeof(header)) ||
         (header.ih_load_addr != BOOT_APP_RAM_LOAD_ADDRESS) ||
         (header.ih_img_size > (UINT32_MAX - header.ih_load_addr))) {
@@ -88,18 +84,8 @@ static int BootUpdate_ValidateFlashRamLoadImage(uint8_t flash_area_id)
         return -1;
     }
 
-    FIH_CALL(bootutil_img_validate, validate_result,
-             NULL,
-             &header,
-             area,
-             validate_tmp_buf,
-             sizeof(validate_tmp_buf),
-             NULL,
-             0,
-             NULL);
-
     flash_area_close(area);
-    return FIH_EQ(validate_result, FIH_SUCCESS) ? 0 : -1;
+    return 0;
 }
 
 static BootUpdate_Result BootUpdate_TryYModemToFlash(uint8_t flash_area_id,
@@ -123,11 +109,11 @@ static BootUpdate_Result BootUpdate_TryYModemToFlash(uint8_t flash_area_id,
         BootUpdate_LogString("Update: YMODEM image received into SPI NOR: ");
         BootUpdate_LogString(image->filename);
         BootUpdate_LogString("\r\n");
-        if (BootUpdate_ValidateFlashRamLoadImage(flash_area_id) != 0) {
-            BootUpdate_LogString("Update: SPI NOR image validation failed\r\n");
+        if (BootUpdate_ValidateFlashRamLoadLayout(flash_area_id) != 0) {
+            BootUpdate_LogString("Update: SPI NOR image layout validation failed\r\n");
             return BOOT_UPDATE_RESULT_FAILED;
         }
-        BootUpdate_LogString("Update: SPI NOR image validation OK\r\n");
+        BootUpdate_LogString("Update: SPI NOR image layout validation OK\r\n");
         return BOOT_UPDATE_RESULT_IMAGE_WRITTEN;
     }
 

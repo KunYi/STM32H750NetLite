@@ -60,7 +60,9 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
     ${CMAKE_CURRENT_SOURCE_DIR}/source/boot_keys.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/boot_exchange_mcuboot.c
     ${CMAKE_CURRENT_SOURCE_DIR}/source/boot_ram_image.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/boot_ram_image_filter.c
     ${CMAKE_CURRENT_SOURCE_DIR}/source/boot_update.c
     ${CMAKE_CURRENT_SOURCE_DIR}/source/boot_ymodem.c
     ${CMAKE_CURRENT_SOURCE_DIR}/source/by25q32es.c

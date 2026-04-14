@@ -2,12 +2,14 @@
 #ifndef MCUBOOT_CONFIG_MCUBOOT_CONFIG_H
 #define MCUBOOT_CONFIG_MCUBOOT_CONFIG_H
 
+#include "boot_flash_layout.h"
+
 /*
  * Phase 3 bring-up configuration:
  * - Verify MCUboot images with EC256.
  * - Use TinyCrypt
- * - Keep the first boot path small: no stock RAM_LOAD, Direct-XIP, encryption,
- *   serial recovery, decompression, or non-EC256 signature schemes.
+ * - Keep the first boot path small: no Direct-XIP, encryption, serial recovery,
+ *   decompression, or non-EC256 signature schemes.
  */
 
 /* Signature and hash policy. */
@@ -28,10 +30,14 @@
 /* One application image with primary and secondary flash slots. */
 #define MCUBOOT_IMAGE_NUMBER 1
 
-/* Keep Phase 3 out of MCUboot's RAM-load path; the segmented RAM payload
- * loader is planned as a project-specific Phase 4 step.
+/*
+ * Use MCUboot's RAM-load slot selection/revert policy while keeping the final
+ * SPI NOR-to-AXI SRAM copy/jump in the project-specific loader.
  */
-#define MCUBOOT_OVERWRITE_ONLY 1
+#define MCUBOOT_RAM_LOAD 1
+#define MCUBOOT_RAM_LOAD_REVERT 1
+#define IMAGE_EXECUTABLE_RAM_START BOOT_APP_RAM_LOAD_ADDRESS
+#define IMAGE_EXECUTABLE_RAM_SIZE  BOOT_APP_RAM_LOAD_SIZE
 
 /* Validate the primary image on every boot before handing control onward. */
 #define MCUBOOT_VALIDATE_PRIMARY_SLOT

@@ -21,6 +21,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "boot_exchange.h"
 #include "uart_stdio_async.h"
 #include <stdio.h>
 
@@ -33,6 +34,9 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#ifndef APP_BOOT_AUTO_CONFIRM_AFTER_MS
+#define APP_BOOT_AUTO_CONFIRM_AFTER_MS 0U
+#endif
 
 /* USER CODE END PD */
 
@@ -50,6 +54,9 @@ DMA_HandleTypeDef hdma_usart1_rx;
 DMA_HandleTypeDef hdma_usart1_tx;
 
 /* USER CODE BEGIN PV */
+#if APP_BOOT_AUTO_CONFIRM_AFTER_MS > 0U
+static uint8_t app_boot_confirm_requested;
+#endif
 
 /* USER CODE END PV */
 
@@ -120,6 +127,14 @@ int main(void)
     uart_stdio_async_poll();
     HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
     printf("AXI SRAM app alive: tick=%lu\r\n", (unsigned long)HAL_GetTick());
+#if APP_BOOT_AUTO_CONFIRM_AFTER_MS > 0U
+    if ((app_boot_confirm_requested == 0U) &&
+        (HAL_GetTick() >= APP_BOOT_AUTO_CONFIRM_AFTER_MS)) {
+      BootExchange_RequestConfirmCurrent();
+      app_boot_confirm_requested = 1U;
+      printf("AXI SRAM app confirm request queued\r\n");
+    }
+#endif
     (void)uart_stdio_async_flush(100U);
     HAL_Delay(1000U);
   }
