@@ -5,6 +5,8 @@
 .DS_Store
 Thumbs.db
 .vscode/
+!my_projects/bootloader/App/.vscode/
+!my_projects/bootloader/App/.vscode/*.json
 
 # Log / 暫存
 *.log

@@ -1,0 +1,76 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "CMake: Configure Debug",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--preset",
+                "Debug"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "CMake: Build Debug",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "--preset",
+                "Debug"
+            ],
+            "dependsOn": [
+                "CMake: Configure Debug"
+            ],
+            "dependsOrder": "sequence",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": "$gcc"
+        },
+        {
+            "label": "CMake: Configure Release",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--preset",
+                "Release"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "CMake: Build Release",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "--preset",
+                "Release"
+            ],
+            "dependsOn": [
+                "CMake: Configure Release"
+            ],
+            "dependsOrder": "sequence",
+            "problemMatcher": "$gcc"
+        },
+        {
+            "label": "CMake: Build & Sign Release",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "--preset",
+                "Release",
+                "--target",
+                "sign"
+            ],
+            "dependsOn": [
+                "CMake: Configure Release"
+            ],
+            "dependsOrder": "sequence",
+            "problemMatcher": "$gcc"
+        }
+    ]
+}

@@ -1,0 +1,42 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug: AXI SRAM App",
+            "type": "cortex-debug",
+            "request": "launch",
+            "servertype": "openocd",
+            "serverpath": "openocd",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}/build/Debug/STM32H750NetLiteApp.elf",
+            "device": "STM32H750xx",
+            "svdFile": "${workspaceFolder}/../.vscode/STM32H750x.svd",
+            "configFiles": [
+                "${workspaceFolder}/openocd_scripts/h750netlite_app.cfg"
+            ],
+            "searchDir": [
+                "${workspaceFolder}/openocd_scripts",
+                "${workspaceFolder}/../openocd_scripts"
+            ],
+            "gdbPath": "gdb-multiarch",
+            "preLaunchTask": "CMake: Build Debug",
+            "overrideLaunchCommands": [
+                "monitor reset halt",
+                "load",
+                "set $sp = *(unsigned int*)0x24000000",
+                "set $pc = *(unsigned int*)0x24000004",
+                "break main",
+                "continue"
+            ],
+            "postRestartCommands": [
+                "monitor reset halt",
+                "load",
+                "set $sp = *(unsigned int*)0x24000000",
+                "set $pc = *(unsigned int*)0x24000004",
+                "break main",
+                "continue"
+            ],
+            "showDevDebugOutput": "none"
+        }
+    ]
+}

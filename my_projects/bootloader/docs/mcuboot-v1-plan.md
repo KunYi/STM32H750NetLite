@@ -267,7 +267,7 @@ Crypto notes:
 
 ### Phase 4: YMODEM Download To AXI SRAM
 
-Status: in progress.
+Status: completed.
 
 Add the bootloader download path before SPI NOR slot/update validation. This
 phase proves the UART transfer and RAM application execution path with the
@@ -308,10 +308,14 @@ Current implementation status:
 Initial validation:
 
 - With empty slots, `boot_go()` fails cleanly and enters `BootUpdate_RunRecovery()`.
-- YMODEM receives a signed image and writes it to AXI SRAM.
+- Linux Mint `sb --ymodem` transfer successfully sends
+  `STM32H750NetLiteApp.signed.bin` over USART1.
+- YMODEM receives the signed image and writes it to AXI SRAM.
 - Failed or canceled YMODEM transfer leaves no accepted RAM image.
 - Bootloader checks the downloaded image header and RAM-load address range
   before any jump attempt.
+- The AXI SRAM demo app can be built, loaded, and debugged directly through the
+  App-local VS Code/OpenOCD flow.
 
 ### Phase 5: Signed RAM-load Application From AXI SRAM
 
