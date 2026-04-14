@@ -6,6 +6,8 @@ decisions. It is intentionally shorter than the project-level specifications in
 
 Primary local documents:
 
+- `gdb-ram-app-debug.md`: GDB workflow for debugging the AXI SRAM RAM app jump
+  and HardFault context.
 - `mcuboot-v1-plan.md`: implementation plan for the MCUboot V1 RAM-load path.
 
 Reference project-level documents:
