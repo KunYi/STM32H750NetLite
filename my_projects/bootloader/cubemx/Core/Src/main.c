@@ -161,7 +161,12 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLM = 5;
   RCC_OscInitStruct.PLL.PLLN = 160;
   RCC_OscInitStruct.PLL.PLLP = 2;
-  RCC_OscInitStruct.PLL.PLLQ = 12;
+#if 0
+  RCC_OscInitStruct.PLL.PLLQ = 12; /* 66.66MHz */
+  RCC_OscInitStruct.PLL.PLLQ = 10; /* 80MHz */
+  RCC_OscInitStruct.PLL.PLLQ = 8;  /* 100MHz */
+#endif
+  RCC_OscInitStruct.PLL.PLLQ = 5;  /* 160MHz */
   RCC_OscInitStruct.PLL.PLLR = 16;
   RCC_OscInitStruct.PLL.PLLRGE = RCC_PLL1VCIRANGE_2;
   RCC_OscInitStruct.PLL.PLLVCOSEL = RCC_PLL1VCOWIDE;
