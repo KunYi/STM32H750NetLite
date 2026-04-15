@@ -7,25 +7,79 @@ target extended-remote :3333
 monitor reset halt
 
 define hf
-  echo \n=== registers ===\n
+  echo \n================ HARDFAULT ANALYSIS ================\n
+  echo \n=== core registers ===\n
   info registers
 
   echo \n=== backtrace ===\n
   bt
 
   echo \n=== fault registers ===\n
-  printf "VTOR = 0x%08x\n", *(unsigned int*)0xE000ED08
-  printf "CFSR = 0x%08x\n", *(unsigned int*)0xE000ED28
-  printf "HFSR = 0x%08x\n", *(unsigned int*)0xE000ED2C
-  printf "DFSR = 0x%08x\n", *(unsigned int*)0xE000ED30
+  printf "VTOR  = 0x%08x\n", *(unsigned int*)0xE000ED08
+  printf "CFSR  = 0x%08x\n", *(unsigned int*)0xE000ED28
+  printf "HFSR  = 0x%08x\n", *(unsigned int*)0xE000ED2C
+  printf "DFSR  = 0x%08x\n", *(unsigned int*)0xE000ED30
   printf "MMFAR = 0x%08x\n", *(unsigned int*)0xE000ED34
-  printf "BFAR = 0x%08x\n", *(unsigned int*)0xE000ED38
+  printf "BFAR  = 0x%08x\n", *(unsigned int*)0xE000ED38
 
-  echo \n=== pc disassembly ===\n
-  x/8i $pc
+  echo \n=== exception stack frame ===\n
+  x/8wx hardfault_args
 
-  echo \n=== lr disassembly, if valid ===\n
-  x/8i $lr
+  echo \n=== stacked registers ===\n
+  printf "R0   = 0x%08x\n", ((unsigned int*)hardfault_args)[0]
+  printf "R1   = 0x%08x\n", ((unsigned int*)hardfault_args)[1]
+  printf "R2   = 0x%08x\n", ((unsigned int*)hardfault_args)[2]
+  printf "R3   = 0x%08x\n", ((unsigned int*)hardfault_args)[3]
+  printf "R12  = 0x%08x\n", ((unsigned int*)hardfault_args)[4]
+  printf "LR   = 0x%08x\n", ((unsigned int*)hardfault_args)[5]
+  printf "PC   = 0x%08x\n", ((unsigned int*)hardfault_args)[6]
+  printf "xPSR = 0x%08x\n", ((unsigned int*)hardfault_args)[7]
+
+  echo \n=== stacked PC disassembly, if valid ===\n
+  set $stack_pc = ((unsigned int*)hardfault_args)[6]
+  if (($stack_pc >= 0x08000000 && $stack_pc < 0x08200000) || \
+      ($stack_pc >= 0x00000000 && $stack_pc < 0x00010000) || \
+      ($stack_pc >= 0x24000000 && $stack_pc < 0x24080000) || \
+      ($stack_pc >= 0x30000000 && $stack_pc < 0x30040000))
+    x/8i ($stack_pc & ~1)
+  else
+    echo stacked PC not in a known executable region\n
+  end
+
+  echo \n=== stacked LR disassembly, if valid ===\n
+  set $stack_lr = ((unsigned int*)hardfault_args)[5]
+  if (($stack_lr & 0xFF000000) == 0xFF000000)
+    echo stacked LR looks like EXC_RETURN\n
+  else
+    if (($stack_lr >= 0x08000000 && $stack_lr < 0x08200000) || \
+        ($stack_lr >= 0x00000000 && $stack_lr < 0x00010000) || \
+        ($stack_lr >= 0x24000000 && $stack_lr < 0x24080000) || \
+        ($stack_lr >= 0x30000000 && $stack_lr < 0x30040000))
+      x/8i ($stack_lr & ~1)
+    else
+      echo stacked LR not in a known executable region\n
+    end
+  end
+
+  echo \n=== EXC_RETURN decode ===\n
+  printf "EXC_RETURN = 0x%08x\n", $lr
+
+  if (($lr & 4) == 0)
+    echo Stack used: MSP\n
+  else
+    echo Stack used: PSP\n
+  end
+
+  if (($lr & 0x10) == 0)
+    echo Extended FP stack frame present\n
+  else
+    echo Basic stack frame (no FP context)\n
+  end
+
+  echo \n=== handler PC (current) ===\n
+  x/6i $pc
+
+  echo \n====================================================\n
 end
 
 document hf
@@ -68,7 +122,7 @@ document wait_ram_enter
 end
 
 define wait_hf
-  break HardFault_Handler
+  break hard_fault_handler_c
   continue
   hf
 end
