@@ -283,6 +283,11 @@ static BootRamImage_Result boot_ram_image_read_flash_signed_size(const struct fl
     return BOOT_RAM_IMAGE_RESULT_OK;
 }
 
+static inline int is_dcache_enabled(void)
+{
+    return (SCB->CCR & SCB_CCR_DC_Msk) != 0;
+}
+
 static void boot_ram_image_clean_payload_dcache(uint32_t image_base, uint32_t image_size)
 {
     uintptr_t start;
@@ -292,7 +297,7 @@ static void boot_ram_image_clean_payload_dcache(uint32_t image_base, uint32_t im
     uintptr_t aligned_size;
 
     /* CMSIS cache helpers check cache presence, not the runtime enable bit. */
-    if ((SCB->CCR & SCB_CCR_DC_Msk) == 0U) {
+    if (!is_dcache_enabled()) {
         boot_ram_image_log("RAM image D-cache clean skipped: D-cache disabled\r\n");
         boot_ram_image_log_flush();
         return;
