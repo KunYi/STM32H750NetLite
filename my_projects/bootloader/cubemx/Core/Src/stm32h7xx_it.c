@@ -59,7 +59,29 @@ extern DMA_HandleTypeDef hdma_usart1_rx;
 extern DMA_HandleTypeDef hdma_usart1_tx;
 extern UART_HandleTypeDef huart1;
 /* USER CODE BEGIN EV */
+void hard_fault_handler_c(unsigned int *hardfault_args)
+{
+  unsigned int stacked_r0  = hardfault_args[0];
+  unsigned int stacked_r1  = hardfault_args[1];
+  unsigned int stacked_r2  = hardfault_args[2];
+  unsigned int stacked_r3  = hardfault_args[3];
+  unsigned int stacked_r12 = hardfault_args[4];
+  unsigned int stacked_lr  = hardfault_args[5];
+  unsigned int stacked_pc  = hardfault_args[6];
+  unsigned int stacked_psr = hardfault_args[7];
 
+  /* disable unused variables warning */
+  (void)stacked_r0;
+  (void)stacked_r1;
+  (void)stacked_r2;
+  (void)stacked_r3;
+  (void)stacked_r12;
+  (void)stacked_lr;
+  (void)stacked_pc;
+  (void)stacked_psr;
+
+  while(1);
+}
 /* USER CODE END EV */
 
 /******************************************************************************/
@@ -86,7 +108,13 @@ void NMI_Handler(void)
 void HardFault_Handler(void)
 {
   /* USER CODE BEGIN HardFault_IRQn 0 */
-
+  __asm volatile (
+    "tst lr, #4\n"
+    "ite eq\n"
+    "mrseq r0, msp\n"
+    "mrsne r0, psp\n"
+    "b hard_fault_handler_c\n"
+  );
   /* USER CODE END HardFault_IRQn 0 */
   while (1)
   {
