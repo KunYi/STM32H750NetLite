@@ -322,8 +322,10 @@ static void boot_ram_image_clean_payload_dcache(uint32_t image_base, uint32_t im
 __attribute__((naked, noreturn))
 static void boot_ram_image_enter(uint32_t sp, uint32_t pc)
 {
+#ifndef __clang__
     (void)sp;
     (void)pc;
+#endif
 
     __asm volatile(
         "msr msp, r0\n"
