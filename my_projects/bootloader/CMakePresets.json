@@ -6,7 +6,6 @@
             "hidden": true,
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/build/${presetName}",
-            "toolchainFile": "${sourceDir}/cmake/gcc-arm-none-eabi.cmake",
             "cacheVariables": {
                 "BOOT_FLASH_SELF_TEST": "OFF",
                 "BOOT_FLASH_DESTRUCTIVE_TEST": "OFF",
@@ -16,6 +15,7 @@
         {
             "name": "Debug",
             "inherits": "default",
+            "toolchainFile": "${sourceDir}/cmake/gcc-arm-none-eabi.cmake",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug"
             }
@@ -23,6 +23,23 @@
         {
             "name": "Release",
             "inherits": "default",
+            "toolchainFile": "${sourceDir}/cmake/gcc-arm-none-eabi.cmake",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+            }
+        },
+        {
+            "name": "Debug-ATfE",
+            "inherits": "default",
+            "toolchainFile": "${sourceDir}/cmake/atfe.cmake",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "Release-ATfE",
+            "inherits": "default",
+            "toolchainFile": "${sourceDir}/cmake/atfe.cmake",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "RelWithDebInfo"
             }
@@ -36,6 +53,14 @@
         {
             "name": "Release",
             "configurePreset": "Release"
+        },
+        {
+            "name": "Debug-ATfE",
+            "configurePreset": "Debug-ATfE"
+        },
+        {
+            "name": "Release-ATfE",
+            "configurePreset": "Release-ATfE"
         }
     ]
 }

@@ -31,6 +31,35 @@
             "problemMatcher": "$gcc"
         },
         {
+            "label": "CMake: Configure Debug ATfE",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--preset",
+                "Debug-ATfE"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "CMake: Build Debug ATfE",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "--preset",
+                "Debug-ATfE"
+            ],
+            "dependsOn": [
+                "CMake: Configure Debug ATfE"
+            ],
+            "dependsOrder": "sequence",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": "$gcc"
+        },
+        {
             "label": "CMake: Configure Release",
             "type": "shell",
             "command": "cmake",
@@ -51,6 +80,31 @@
             ],
             "dependsOn": [
                 "CMake: Configure Release"
+            ],
+            "dependsOrder": "sequence",
+            "problemMatcher": "$gcc"
+        },
+        {
+            "label": "CMake: Configure Release ATfE",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--preset",
+                "Release-ATfE"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "CMake: Build Release ATfE",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "--preset",
+                "Release-ATfE"
+            ],
+            "dependsOn": [
+                "CMake: Configure Release ATfE"
             ],
             "dependsOrder": "sequence",
             "problemMatcher": "$gcc"
