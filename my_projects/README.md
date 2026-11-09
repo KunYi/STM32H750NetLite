@@ -148,7 +148,7 @@ PS: 目前使用PR2040 Zero 燒錄 Raspberry 的 DebugProbe 韌體，支持 DAP-
 | 腳位 | 標籤 | 方向 | 說明 |
 |------|------|------|------|
 | PC3 | LED | Output | 板載 LED |
-| PC13 | PC13_KEY2 | Input | 按鍵 2 |
+| PC13 | PC13_KEY2 | Input/PullDown | 按鍵 2, Active High |
 | PA0 | PA0_WKUP | Input | 喚醒按鍵 (測試Standby Mode 才會實做，目前為一般GPIO Input)|
 | PA4 | FLASH_CS | Output | Flash Chip Select |
 

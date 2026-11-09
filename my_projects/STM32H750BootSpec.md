@@ -483,7 +483,7 @@ _Static_assert(sizeof(AppHeader_t) == 256,
 1. VTOR = 0x0800_0000
 2. BootClock_MinimalHSI64()：使用 HSI 64 MHz，不啟動 PLL1/PLL2/PLL3
 3. GPIO 初始化：
-   - PC13（KEY2，Input Pull-Up）
+   - PC13（KEY2，Input Pull-Down）
    - PC3（LED，Output，初始 Low）
 4. SPI1 初始化：
    - PA4（CS，GPIO Output，Software NSS，初始 High）
